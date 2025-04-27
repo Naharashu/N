@@ -1,0 +1,8 @@
+var letters = 'QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm'
+var nums = '1234567890'
+var symbols = '~`!@#$%^&*()_+-="№;:?'
+
+func concat(s, s2) {
+    return s + s2
+}
+

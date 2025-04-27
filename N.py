@@ -9,6 +9,9 @@ symbol_table = {
     'var': 'integer',
     'sqrt': 'function',
     'cbrt': 'function',
+    'lambert': 'function',
+    'log2': 'function',
+    'log10': 'function',
     'log': 'function',
     'sin': 'function',
     'cos': 'function',
@@ -21,11 +24,13 @@ symbol_table = {
     'max': 'function',
     'random': 'function',
     'randint': 'function',
-    'randfloat': 'function',
     'output': 'function',
     'input': 'function',
     'len': 'function'
 }
+
+mod_vars = {}
+mod_funcs = {}
 
 # === Trigonometric Functions in Degrees ===
 def sin_deg(x):
@@ -48,10 +53,11 @@ funcs = {}
 
 # === Lexer ===
 tokens = (
-    'NUMBER', 'STRING', 'VAR', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'ID',
-    'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD',
+    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'ID',
+    'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
-    'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT'
+    'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR'
 )
 
 t_PLUS = r'\+'
@@ -60,6 +66,7 @@ t_MULTIPLE = r'\*'
 t_DIVIDE = r'/'
 t_POW = r'\^'
 t_MOD = r'\%'
+t_DOT = r'\.'
 t_LPAREN = r'\('
 t_RPAREN = r'\)'
 t_LBRACKET = r'\{'
@@ -68,6 +75,7 @@ t_LBRACK = r'\['
 t_RBRACK = r'\]'
 t_EQ = r'='
 t_TWODOTS = r'\:'
+t_SEMI = r'\;'
 t_QUE = r'\?'
 t_NEQ = r'!=='
 t_EE = r'=='
@@ -78,21 +86,49 @@ t_LTE = r'<='
 t_COMMA = r','
 
 def t_op(t):
-    r'\+\=|-\=|\*\=|\/\='
+    r'\+\=|-\=|\*\=|\/\=|\=\='
+    return t
+
+def t_CONTINUE(t):
+    r'continue'
+    return t
+
+def t_BREAK(t):
+    r'break'
+    return t
+
+def t_PASS(t):
+    r'pass'
+    return t
+
+def t_AND(t):
+    r'&&'
+    return t
+
+def t_OR(t):
+    r'\|\|'
     return t
 
 def t_IMPORT(t):
     r'import'
     return t
-    
+
+def t_TRUE(t):
+    r'true'
+    return t
+
+def t_FALSE(t):
+    r'false'
+    return t
+
 def t_ALWAYS(t):
-	r'always'
-	return t
-    
+    r'always'
+    return t
+
 def t_DO(t):
-	r'do'
-	return t
-	
+    r'do'
+    return t
+
 def t_VAR(t):
     r'var'
     return t
@@ -112,10 +148,10 @@ def t_IF(t):
 def t_OTHERWISE(t):
     r'otherwise'
     return t
-    
+
 def t_ELSE(t):
-	r'else'
-	return t
+    r'else'
+    return t
 
 def t_RETURN(t):
     r'return'
@@ -134,7 +170,7 @@ def t_WHILE(t):
     return t
 
 def t_ID(t):
-    r'[a-zA-Z_][a-zA-Z_0-9]*'
+    r'[a-zA-Zа-яА-ЯёЁ_][a-zA-Zа-яА-ЯёЁ_0-9]*'
     t.value = (t.value, symbol_lookup(t.value))
     return t
 
@@ -163,22 +199,36 @@ def t_error(t):
     t.lexer.skip(1)
 
 lexer = lex.lex()
-lexer.lineno = 1 
+lexer.lineno = 1
 
 # === Parser ===
-start = 'statements'
+start = 'program'
 
 precedence = (
     ('left', 'COMMA'),
+    ('left', 'OR'),
+    ('left', 'AND'),
+    ('left', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'IS', 'IN'),
     ('left', 'PLUS', 'MINUS'),
-    ('left', 'MULTIPLE', 'DIVIDE'),
-    ('right', 'POW', 'MOD'),
+    ('left', 'MULTIPLE', 'DIVIDE', 'MOD'),
+    ('right', 'POW'),
     ('right', 'UMINUS', 'UPLUS'),
-    ('nonassoc', 'EQ'),
-    ('nonassoc', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET'),
-    ('nonassoc', 'FUNC', 'VAR', 'FOR', 'RETURN', 'IF', 'OTHERWISE', 'ELSE' ,'WHILE'),
-    ('nonassoc', 'op', 'IN')
+    ('nonassoc', 'EQ', 'op'),
+    ('nonassoc', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'LBRACK', 'RBRACK'),
+    ('nonassoc', 'FUNC', 'VAR', 'FOR', 'RETURN', 'IF', 'OTHERWISE', 'ELSE', 'WHILE'),
 )
+
+def p_program(p):
+    'program : statements'
+    p[0] = ('program', p[1])
+
+def p_statements_multiple(p):
+    'statements : statements expression'
+    p[0] = p[1] + [p[2]]
+
+def p_statements_single(p):
+    'statements : expression'
+    p[0] = [p[1]]
 
 def p_block(p):
     'block : LBRACKET statements RBRACKET'
@@ -197,19 +247,27 @@ def p_elements_single(p):
     'elements : element'
     p[0] = [p[1]]
 
+def p_elements_empty(p):
+    'elements :'
+    p[0] = []
+
+def p_bool(p):
+    '''BOOL : TRUE
+            | FALSE'''
+    p[0] = p[1]
+
 def p_element(p):
     '''element : NUMBER
                | STRING
+               | BOOL
                | expression'''
     p[0] = p[1]
 
-def p_statements_multiple(p):
-    'statements : statements expression'
-    p[0] = p[1] + [p[2]]
-
-def p_statements_single(p):
-    'statements : expression'
-    p[0] = [p[1]]
+def p_factor_mod_var(p):
+    'factor : ID DOT ID'
+    modul, _ = p[1]
+    var, _ = p[3]
+    p[0] = ('modvar', modul, var)
 
 def p_expression_binop(p):
     '''expression : expression PLUS term
@@ -222,7 +280,7 @@ def p_term_binop(p):
             | term POW factor
             | term MOD factor'''
     p[0] = (p[2], p[1], p[3])
-    
+
 def p_expression_term(p):
     'expression : term'
     p[0] = p[1]
@@ -248,6 +306,10 @@ def p_factor_string(p):
     'factor : STRING'
     p[0] = p[1]
 
+def p_factor_bool(p):
+    'factor : BOOL'
+    p[0] = p[1]
+
 def p_factor_id(p):
     'factor : ID'
     p[0] = p[1]
@@ -256,18 +318,20 @@ def p_factor_array(p):
     'factor : array'
     p[0] = p[1]
 
+
+
 def p_expression_return(p):
     'expression : RETURN retval'
     p[0] = ('return', p[2])
-    
+
 def p_retval_multiple(p):
     'retval : LPAREN retval COMMA expression RPAREN'
     p[0] = p[1] + [p[3]]
-    
+
 def p_retval_single(p):
     'retval : expression'
     p[0] = p[1]
-    
+
 def p_import(p):
     'expression : IMPORT STRING'
     p[0] = ('import', p[2])
@@ -280,29 +344,49 @@ def p_expression_if(p):
     ifbody = p[3]
     otherbody = None if len(p) == 4 else p[5]
     p[0] = ('ifExp', cond, ifbody, otherbody)
-    
+
 def p_ternar(p):
     'expression : cond QUE expression TWODOTS expression'
     cond = p[1]
     body = p[3]
     elsebody = p[5]
     p[0] = ('ternar', cond, body, elsebody)
-    
-    
+
 def p_expression_while(p):
     'expression : WHILE cond block'
     cond = p[2]
     body = p[3]
     p[0] = ('while', cond, body)
-    
-def p_expression_alwaysdo(p):
-	'expression : ALWAYS DO block'
-	body = p[3]
-	p[0] = ('alwaysDo', body)
 
-def p_cond(p):
-    '''cond : expression logic expression'''
-    p[0] = ('cond', p[1], p[2], p[3])
+def p_expression_alwaysdo(p):
+    'expression : ALWAYS DO block'
+    body = p[3]
+    p[0] = ('alwaysDo', body)
+
+def p_expression_continue(p):
+    'expression : CONTINUE'
+    p[0] = ('continue',)
+
+def p_expression_break(p):
+    'expression : BREAK'
+    p[0] = ('break',)
+
+def p_expression_pass(p):
+    'expression : PASS'
+    p[0] = ('pass',)
+    
+def p_cond_mul(p):
+    '''cond : LPAREN cond AND cond RPAREN
+    | LPAREN cond OR cond RPAREN'''
+    p[0] = (p[3], p[2], p[4])
+
+def p_cond_logic(p):
+    '''cond : expression logic expression
+            | expression'''
+    if len(p) == 4:
+        p[0] = ('cond', p[1], p[2], p[3])
+    else:
+        p[0] = p[1]
 
 def p_logic(p):
     '''logic : EE
@@ -314,6 +398,11 @@ def p_logic(p):
              | IS
              | IN'''
     p[0] = p[1]
+    
+def p_expression_logic(p):
+    '''expression : expression AND expression
+                  | expression OR expression'''
+    p[0] = (p[2], p[1], p[3])
 
 def p_factor_function(p):
     '''factor : ID LPAREN RPAREN
@@ -339,9 +428,26 @@ def p_expression_func_def(p):
     name, _ = p[2]
     params = p[4]
     body = p[6]
-    funcs[name] = (params, body)
-    symbol_table[name] = 'function'
+    if 'curmod' in globals():
+        mod_funcs.setdefault(curmod, {})[name] = (params, body)
+        symbol_table[name] = 'function'
+    else:
+        funcs[name] = (params, body)
+        symbol_table[name] = 'function'
     p[0] = ('ownfunc', name, params, body)
+
+def p_factor_mod_func(p):
+    'factor : ID DOT ID LPAREN arguments RPAREN'
+    modul, _ = p[1]
+    func, _ = p[3]
+    args = p[5]
+    p[0] = ('modfunc', modul, func, args)
+
+def p_factor_mod_func_noargs(p):
+    'factor : ID DOT ID LPAREN RPAREN'
+    modul, _ = p[1]
+    func, _ = p[3]
+    p[0] = ('modfunc', modul, func, [])
 
 def p_params_multiple(p):
     'params : params COMMA param'
@@ -373,18 +479,19 @@ def p_expression_assign(p):
     p[0] = ('assign', name, val)
 
 def p_expression_newAssign(p):
-    'expression : ID op expression'
+    '''expression : ID op expression
+                  | ID op LPAREN expression RPAREN'''
     name, _ = p[1]
     opera = p[2]
-    val = p[3]
+    val = p[3] if len(p) == 4 else p[4]
     p[0] = ('newAssign', name, val, opera)
 
 def p_error(p):
     if p:
         print(f"Syntax error at token '{p.value}' (type: {p.type}) on line {p.lineno}")
-        while p and p.type not in ('\n', 'RBRACKET', 'FUNC', 'VAR', 'FOR', 'ID'):
-            p.lexer.skip(1)
-            p = p.lexer.token()
+        while p and p.type not in ('\n', 'RBRACKET', 'SEMI'):
+            lexer.skip(1)
+            p = lexer.token()
     else:
         print("Syntax error at EOF")
 
@@ -392,23 +499,67 @@ parser = yacc.yacc()
 
 # === Interpreter ===
 def eval_ast(node):
-    if isinstance(node, (int, float, str, list)):
+    global vars, mod_vars, mod_funcs, curmod
+
+    if isinstance(node, str) and node in ('true', 'false'):
+        return node == 'true'
+    if isinstance(node, (int, float, str, list, bool)):
         return node
+    if node[0] == 'program':
+        result = None
+        for stmt in node[1]:
+            result = eval_ast(stmt)
+        return result
     if node[0] == 'error':
         raise NameError(f"'{node[1]}' is not a function")
     if node[0] == 'neg':
         return -eval_ast(node[1])
     if node[0] == 'import':
         modul = node[1]
+        mod_vars[modul] = {}
+        mod_funcs[modul] = {}
+        curmod = modul
         try:
-            with open(modul + '.nmod', 'r') as f:
+            with open(modul + '.nmod', 'r', encoding='utf-8') as f:
                 code = f.read()
-            if result:
-                for expr in result:
-                    eval_ast(expr)
+            parsed = parser.parse(code)
+            if parsed:
+                old = vars.copy()
+                vars.clear()
+                vars.update(mod_vars[modul])
+                eval_ast(parsed)
+                mod_vars[modul] = vars.copy()
+                vars.clear()
+                vars.update(old)
+            del curmod
         except FileNotFoundError:
             print(f"Module '{modul}' not found")
         return None
+    if node[0] == 'modvar':
+        modul, var = node[1], node[2]
+        if modul in mod_vars and var in mod_vars[modul]:
+            return mod_vars[modul][var]
+        raise NameError(f"Variable '{var}' not found in module '{modul}'")
+    if node[0] == 'modfunc':
+        modul, func, args = node[1], node[2], node[3]
+        args = [eval_ast(arg) for arg in args]
+        if modul in mod_funcs and func in mod_funcs[modul]:
+            arg_names, body = mod_funcs[modul][func]
+            old = vars.copy()
+            old_cur = globals().get('curmod')
+            globals()['curmod'] = modul
+            for i in range(min(len(arg_names), len(args))):
+                vars[arg_names[i]] = args[i]
+            result = eval_ast(body)
+            vars.clear()
+            vars.update(old)
+            if old_cur is not None:
+                globals()['curmod'] = old_cur
+            else:
+                del globals()['curmod']
+                
+            return result
+        raise NameError(f"Function '{func}' not found in module '{modul}'")
     if node[0] == 'array':
         els = node[1]
         return [eval_ast(el) for el in els]
@@ -417,103 +568,86 @@ def eval_ast(node):
         result = None
         for stmt in statements:
             result = eval_ast(stmt)
+            if isinstance(result, tuple) and result[0] in ('return', 'continue', 'break'):
+                return result
         return result
     if node[0] == 'return':
         return eval_ast(node[1])
+    if node[0] == 'continue':
+        return ('continue',)
+    if node[0] == 'break':
+        return ('break',)
+    if node[0] == 'pass':
+        return None
     if node[0] == 'alwaysDo':
         body = node[1]
+        result = None
         while True:
-            eval_ast(body)
+            block_result = eval_ast(body)
+            if isinstance(block_result, tuple):
+                if block_result[0] == 'return':
+                    return block_result
+                if block_result[0] == 'break':
+                    break
+                if block_result[0] == 'continue':
+                    continue
+            result = block_result
+        return result
     if node[0] == 'ternar':
         cond = node[1]
         body = node[2]
         elsebody = node[3]
-        if cond[0] == 'cond':
-            left = eval_ast(cond[1])
-            op = cond[2]
-            right = eval_ast(cond[3])
-            if op == '==':
-                cond1 = left == right
-            elif op == '!==':
-                cond1 = left != right
-            elif op == '<':
-                cond1 = left < right
-            elif op == '>':
-                cond1 = left > right
-            elif op == '>=':
-                cond1 = left >= right
-            elif op == '<=':
-                cond1 = left <= right
-            elif op == 'is':
-                cond1 = left is right
-            elif op == 'partof':
-                cond1 = left in right
-            else:
-                raise ValueError(f"Unknown operator: {op}")
-            
-        if cond1:
-            return eval_ast(body)
-        else:
-            return eval_ast(elsebody)
+        cond1 = eval_ast(cond)
+        return eval_ast(body if cond1 else elsebody)
     if node[0] == 'ifExp':
         cond = node[1]
         body1 = node[2]
         body2 = node[3]
-        if cond[0] == 'cond':
-            left = eval_ast(cond[1])
-            op = cond[2]
-            right = eval_ast(cond[3])
-            if op == '==':
-                cond1 = left == right
-            elif op == '!==':
-                cond1 = left != right
-            elif op == '<':
-                cond1 = left < right
-            elif op == '>':
-                cond1 = left > right
-            elif op == '>=':
-                cond1 = left >= right
-            elif op == '<=':
-                cond1 = left <= right
-            elif op == 'is':
-                cond1 = left is right
-            elif op == 'partof':
-                cond1 = left in right
-        if cond1:
-            return eval_ast(body1)
-        elif body2 is not None:
-            return eval_ast(body2)
-        return None
+        cond1 = eval_ast(cond)
+        return eval_ast(body1 if cond1 else body2) if body2 else eval_ast(body1) if cond1 else None
     if node[0] == 'while':
         cond = node[1]
         body = node[2]
+        result = None
         while True:
-            if cond[0] == 'cond':
-                left = eval_ast(cond[1])
-                op = cond[2]
-                right = eval_ast(cond[3])
-                if op == '==':
-                    cond1 = left == right
-                elif op == '!==':
-                    cond1 = left != right
-                elif op == '<':
-                    cond1 = left < right
-                elif op == '>':
-                    cond1 = left > right
-                elif op == '>=':
-                    cond1 = left >= right
-                elif op == '<=':
-                    cond1 = left <= right
-                elif op == 'is':
-                    cond1 = left is right
-                elif op == 'partof':
-                    cond1 = left in right
-                else:
-                    raise ValueError(f"Unknown operator: {op}")
+            cond1 = eval_ast(cond)
             if not cond1:
                 break
-            eval_ast(body)
-        return None
+            block_result = eval_ast(body)
+            if isinstance(block_result, tuple):
+                if block_result[0] == 'return':
+                    return block_result
+                if block_result[0] == 'break':
+                    break
+                if block_result[0] == 'continue':
+                    continue
+            result = block_result
+        return result
+    if node[0] == 'for':
+        _, var, start, end, body = node
+        start_val = eval_ast(start)
+        end_val = eval_ast(end)
+        if not isinstance(start_val, (int, float)) or not isinstance(end_val, (int, float)):
+            raise ValueError("For loop start and end must be numbers")
+        old_vars = vars.copy()
+        result = None
+        step = 1 if start_val <= end_val else -1
+        for i in range(int(start_val), int(end_val) + (1 if step > 0 else -1), step):
+            vars[var] = float(i)
+            block_result = eval_ast(body)
+            if isinstance(block_result, tuple):
+                if block_result[0] == 'return':
+                    vars.clear()
+                    vars.update(old_vars)
+                    return block_result
+                if block_result[0] == 'break':
+                    break
+                if block_result[0] == 'continue':
+                    continue
+            result = block_result
+        vars.clear()
+        vars.update(old_vars)
+        return result
     if node[0] == 'assign':
         _, name, expr = node
         val = eval_ast(expr)
@@ -534,10 +668,48 @@ def eval_ast(node):
             res *= val
         elif opera == '/=':
             res /= val
+        elif opera == '==':
+            res = val
         else:
             raise NameError(f"Operation '{opera}' is not allowed")
         vars[name] = res
         return res
+    if node[0] == '&&':
+        left = eval_ast(node[1])
+        if not left:
+            return False
+        return eval_ast(node[2])
+    if node[0] == '||':
+        left = eval_ast(node[1])
+        if left:
+            return True
+        return eval_ast(node[2])
+    if node[0] == 'cond':
+        left = eval_ast(node[1])
+        op = node[2]
+        right = eval_ast(node[3])
+        if op == 'partof' and isinstance(right, (int, float)):
+            right = [right]
+        if op == '==':
+            return left == right
+        elif op == '!==':
+            return left != right
+        elif op == '<':
+            return left < right
+        elif op == '>':
+            return left > right
+        elif op == '>=':
+            return left >= right
+        elif op == '<=':
+            return left <= right
+        elif op == 'is':
+            return left is right
+        elif op == 'partof':
+            if not isinstance(right, (list, str, tuple)):
+                raise ValueError(f"Operator 'partof' expects an iterable as right operand, got {type(right).name}")
+            return left in right
+        else:
+            raise ValueError(f"Unknown operator in cond: {op}")
     if node[0] == 'call':
         name, args = node[1], node[2]
         args = [eval_ast(a) for a in args]
@@ -545,7 +717,11 @@ def eval_ast(node):
             print(*[str(arg) if isinstance(arg, list) else arg for arg in args], file=sys.stderr, flush=True)
             return None
         if name == 'input':
-            user_input = input(args[0])
+            prompt = args[0] if len(args) != 0 else None
+            if prompt is not None:
+                user_input = input(args[0])
+            else:
+                user_input = input()
             try:
                 return int(user_input)
             except ValueError:
@@ -576,8 +752,15 @@ def eval_ast(node):
             return random.random()
         if name == 'randint':
             return random.randint(int(args[0]), int(args[1]))
-        if name == 'randfloat':
-            return random.random()
+        if name == 'len':
+            return len(args[0])
+        if name == 'log2':
+            return math.log2(args[0])
+        if name == 'log10':
+            return math.log10(args[0])
+        if name == 'lambert':
+            res = args[0] * (math.e ** args[0])
+            return res
         if name == 'factorial':
             res = args[0]
             if not isinstance(res, int) or res < 0:
@@ -587,6 +770,15 @@ def eval_ast(node):
             result = 1
             for i in range(2, res + 1):
                 result *= i
+            return result
+        if 'curmod' in globals() and curmod in mod_funcs and name in mod_funcs[curmod]:
+            arg_names, body = mod_funcs[curmod][name]
+            old_vars = vars.copy()
+            for i in range(min(len(arg_names), len(args))):
+                vars[arg_names[i]] = args[i]
+            result = eval_ast(body)
+            vars.clear()
+            vars.update(old_vars)
             return result
         if name in funcs:
             arg_names, body = funcs[name]
@@ -599,24 +791,6 @@ def eval_ast(node):
             return result
         raise NameError(f"Function '{name}' is not defined")
     if node[0] == 'ownfunc':
-        return None
-    if node[0] == 'for':
-        _, var, start, end, body = node
-        start_val = eval_ast(start)
-        end_val = eval_ast(end)
-        if not isinstance(start_val, int) or not isinstance(end_val, int):
-            raise ValueError("For loop start and end must be integers")
-        old_vars = vars.copy()
-        if start_val <= end_val:
-            for i in range(start_val, end_val + 1):
-                vars[var] = i
-                eval_ast(body)
-        else:
-            for i in range(start_val, end_val - 1, -1):
-                vars[var] = i
-                eval_ast(body)
-        vars.clear()
-        vars.update(old_vars)
         return None
     if isinstance(node, tuple) and len(node) == 2 and isinstance(node[1], str):
         name, _ = node
@@ -640,23 +814,16 @@ def eval_ast(node):
         if op == '%':
             return left_val % right_val
     raise ValueError(f"Unknown node: {node}")
-    
-    
+
+# === Test Run ===
 while True:
-    # === Test Run ===
     code = input("Enter your code: ")
-    
     if code.startswith("run "):
         filename = code[4:].strip()
-        with open(filename, "r") as f:
+        with open(filename, "r", encoding='utf-8') as f:
             code = f.read()
-        
-
-    # Test Parser
     result = parser.parse(code)
-
     if result is None:
         print("Parsing failed due to syntax error")
     else:
-        for expr in result:
-            eval_ast(expr)
+        eval_ast(result)

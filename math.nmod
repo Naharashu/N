@@ -1,0 +1,39 @@
+func gamma(x) {
+    if x > 0 {
+        return factorial(x - 1)
+    } else {
+        return 0
+    }
+}
+
+func beta(x, y) {
+    var res = (gamma(x) * gamma(y)) / gamma(x + y)
+    return res
+}
+
+func relu(x) {
+    return max(0, x)
+}
+
+func combs(n, k) {
+    return factorial(n) / (factorial(k) * factorial(n - k))
+}
+
+func sinh(n) {
+    var res = ((e^n) - (e^-n)) / 2
+    return res
+}
+
+func cosh(n) {
+    var res = ((e^n) + (e^-n)) / 2
+    return res
+}
+
+func tanh(n) {
+    var res = sinh(n) / cosh(n)
+    return res
+}
+
+func cotanh(n) {
+    return (1 / tanh(n))
+}
