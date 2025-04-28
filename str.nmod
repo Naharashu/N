@@ -6,3 +6,27 @@ func concat(s, s2) {
     return s + s2
 }
 
+func stringToCharCode(s) {
+    s = toStr(s)
+    var n = len(s)
+    if n == 0 {
+        return ''
+    }
+    var res = []
+    for(i, 0, n-1) {
+        res = append(res, charCodeAt(s[i]))
+    }
+    return res
+}
+
+func stringFromCharCode(s) {
+    var n = len(s)
+    if n == 0 {
+        return ''
+    }
+    var res = []
+    for(i, 0, n-1) {
+        append(res, charCodeFrom(s[i]))
+    }
+    return res
+}

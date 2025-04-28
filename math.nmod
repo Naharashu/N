@@ -37,3 +37,7 @@ func tanh(n) {
 func cotanh(n) {
     return (1 / tanh(n))
 }
+
+func sigmoid(x) {
+    return e^x / (e^(x+1))
+}

@@ -3,10 +3,15 @@ import ply.yacc as yacc
 import math
 import random
 import sys
+import hashlib
+
+lines = []
 
 # === Symbol Table ===
 symbol_table = {
-    'var': 'integer',
+    'var': 'keyword',
+    'exit': 'function',
+    'split': 'function',
     'sqrt': 'function',
     'cbrt': 'function',
     'lambert': 'function',
@@ -26,10 +31,29 @@ symbol_table = {
     'randint': 'function',
     'output': 'function',
     'input': 'function',
-    'len': 'function'
+    'len': 'function',
+    'toUpper': 'function',
+    'toLower': 'function',
+    'toInt': 'function',
+    'toFloat': 'function',
+    'toStr': 'function',
+    'typeof': 'function',
+    'round': 'function',
+    'ceil': 'function',
+    'floor': 'function',
+    'replace': 'function',
+    'append': 'function',
+    'pop': 'function',
+    'sort': 'function',
+    'reverse': 'function',
+    'md5': 'function',
+    'charCodeAt': 'function',
+    'charCodeFrom': 'function',
+    'substring': 'function'
 }
 
 mod_vars = {}
+vars_stack = []
 mod_funcs = {}
 
 # === Trigonometric Functions in Degrees ===
@@ -86,7 +110,7 @@ t_LTE = r'<='
 t_COMMA = r','
 
 def t_op(t):
-    r'\+\=|-\=|\*\=|\/\=|\=\='
+    r'\+\=|-\=|\*\=|\/\='
     return t
 
 def t_CONTINUE(t):
@@ -477,14 +501,24 @@ def p_expression_assign(p):
     name, _ = p[2]
     val = p[4]
     p[0] = ('assign', name, val)
+    
+def p_expression_plain_assign(p):
+    'expression : ID EQ expression'
+    name, _ = p[1]
+    val = p[3]
+    p[0] = ('assignpl', name, val)
 
 def p_expression_newAssign(p):
-    '''expression : ID op expression
-                  | ID op LPAREN expression RPAREN'''
+    '''expression : ID op expression'''
     name, _ = p[1]
     opera = p[2]
-    val = p[3] if len(p) == 4 else p[4]
+    val = p[3]
     p[0] = ('newAssign', name, val, opera)
+    
+def p_array_index(p):
+    '''expression : ID LBRACK expression RBRACK'''
+    
+    p[0] = ('arrindx', p[1], p[3])
 
 def p_error(p):
     if p:
@@ -498,13 +532,24 @@ def p_error(p):
 parser = yacc.yacc()
 
 # === Interpreter ===
-def eval_ast(node):
-    global vars, mod_vars, mod_funcs, curmod
-
+def eval_ast(node, localVarsCache=None):
+    global vars, mod_vars, mod_funcs, curmod, vars_stack
+    if localVarsCache is None:
+        localVarsCache = {}
     if isinstance(node, str) and node in ('true', 'false'):
         return node == 'true'
     if isinstance(node, (int, float, str, list, bool)):
         return node
+    if node[0] == 'number':
+        return node[1]
+    if node[0] == 'string':
+        return node[1]
+    if node[0] == 'id':
+        if node[1] in localVarsCache:
+            return localVarsCache[node[1]]
+        if node[1] in vars:
+            return vars[node[1]]
+        raise NameError(f"Variable '{node[1]}' not defined")
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
@@ -524,13 +569,13 @@ def eval_ast(node):
                 code = f.read()
             parsed = parser.parse(code)
             if parsed:
-                old = vars.copy()
+                vars_stack.append(vars.copy())
                 vars.clear()
                 vars.update(mod_vars[modul])
                 eval_ast(parsed)
                 mod_vars[modul] = vars.copy()
                 vars.clear()
-                vars.update(old)
+                vars.update(vars_stack.pop())
             del curmod
         except FileNotFoundError:
             print(f"Module '{modul}' not found")
@@ -545,14 +590,16 @@ def eval_ast(node):
         args = [eval_ast(arg) for arg in args]
         if modul in mod_funcs and func in mod_funcs[modul]:
             arg_names, body = mod_funcs[modul][func]
-            old = vars.copy()
-            old_cur = globals().get('curmod')
-            globals()['curmod'] = modul
+            vars_stack.append(vars.copy())
+            vars.clear()
+            vars.update(mod_vars[modul])
             for i in range(min(len(arg_names), len(args))):
                 vars[arg_names[i]] = args[i]
+            old_cur = globals().get('curmod')
+            globals()['curmod'] = modul
             result = eval_ast(body)
             vars.clear()
-            vars.update(old)
+            vars.update(vars_stack.pop())
             if old_cur is not None:
                 globals()['curmod'] = old_cur
             else:
@@ -565,6 +612,8 @@ def eval_ast(node):
         return [eval_ast(el) for el in els]
     if node[0] == 'block':
         _, statements = node
+        if len(statements) == 1:
+            return eval_ast(statements[0])
         result = None
         for stmt in statements:
             result = eval_ast(stmt)
@@ -629,28 +678,44 @@ def eval_ast(node):
         end_val = eval_ast(end)
         if not isinstance(start_val, (int, float)) or not isinstance(end_val, (int, float)):
             raise ValueError("For loop start and end must be numbers")
-        old_vars = vars.copy()
+        oldval_ = vars.get(var)
         result = None
         step = 1 if start_val <= end_val else -1
+        if body[0] == 'block' and len(body[1]) == 1 and body[1][0][0] == 'call' and body[1][0][1] == 'output' and len(body[1][0][2]) == 1 and body[1][0][2][0][0] == 'id' and body[1][0][2][0][1] == var:
+            for i in range(int(start_val), int(end_val) + (1 if step > 0 else -1), step):
+                print(i)
+            return None
         for i in range(int(start_val), int(end_val) + (1 if step > 0 else -1), step):
-            vars[var] = float(i)
-            block_result = eval_ast(body)
+            vars[var] = i
+            localVarsCache = {var: i}
+            block_result = eval_ast(body, localVarsCache)
             if isinstance(block_result, tuple):
                 if block_result[0] == 'return':
-                    vars.clear()
-                    vars.update(old_vars)
+                    if oldval_ is None:
+                        vars.pop(var, None)
+                    else:
+                        vars[var] = oldval_
                     return block_result
                 if block_result[0] == 'break':
                     break
                 if block_result[0] == 'continue':
                     continue
             result = block_result
-        vars.clear()
-        vars.update(old_vars)
+        if oldval_ is None:
+            vars.pop(var, None)
+        else:
+            vars[var] = oldval_
         return result
     if node[0] == 'assign':
         _, name, expr = node
         val = eval_ast(expr)
+        vars[name] = val
+        return val
+    if node[0] == 'assignpl':
+        name, expr = node[1], node[2]
+        val = eval_ast(expr)
+        if name not in vars:
+            raise NameError(f"Variable '{name}' is not defined")
         vars[name] = val
         return val
     if node[0] == 'newAssign':
@@ -668,8 +733,6 @@ def eval_ast(node):
             res *= val
         elif opera == '/=':
             res /= val
-        elif opera == '==':
-            res = val
         else:
             raise NameError(f"Operation '{opera}' is not allowed")
         vars[name] = res
@@ -711,8 +774,25 @@ def eval_ast(node):
         else:
             raise ValueError(f"Unknown operator in cond: {op}")
     if node[0] == 'call':
-        name, args = node[1], node[2]
-        args = [eval_ast(a) for a in args]
+        name, ar = node[1], node[2]
+        args = []
+        for a in ar:
+            if a[0] == 'id':
+                value = vars.get(a[1])
+                if value is None:
+                    raise NameError(f"Variable '{a[1]}' is not defined")
+                args.append(value)
+            else:
+                args.append(eval_ast(a)) 
+        if name == 'output' and len(args) == 1:
+            arg = args[0]
+            if isinstance(arg, (int, float, str, bool)):
+                print(arg)
+                return None
+            if arg[0] in ('id', 'number'):
+                value = arg[1] if arg[0] == 'number' else localVarsCache(arg[1], vars[arg[1]])
+                print(value)
+                return None
         if name == 'output':
             print(*[str(arg) if isinstance(arg, list) else arg for arg in args], file=sys.stderr, flush=True)
             return None
@@ -726,6 +806,98 @@ def eval_ast(node):
                 return int(user_input)
             except ValueError:
                 return user_input
+        if name == 'charCodeAt':
+            char = args[0]
+            return ord(char)
+        if name == 'charCodeFrom':
+            return chr(args[0])
+        if name == 'substring':
+            string = args[0]
+            start = args[1]
+            end = args[2]
+            if isinstance(start, tuple):
+                start = eval_ast(start)
+                start = int(start)
+            if isinstance(end, tuple):
+                end = eval_ast(end)
+                end = int(end)
+            int(start)
+            int(end)
+            return string[start:end]
+        if name == 'split':
+            string = args[0]
+            delimiter = args[1]
+            return string.split(delimiter)
+        if name == 'toUpper':
+            return args[0].upper()
+        if name == 'toLower':
+            return args[0].lower()
+        if name == 'toInt':
+            return int(args[0])
+        if name == 'toFloat':
+            return float(args[0])
+        if name == 'toStr':
+            return str(args[0])
+        if name == 'md5':
+            return hashlib.md5(args[0].encode()).hexdigest()
+        if name == 'replace':
+            old = args[0]
+            new = args[1]
+            string = args[2]
+            return string.replace(old, new)
+        if name == 'sort':
+            arr = args[0]
+            if not isinstance(arr, list):
+                raise ValueError(f"Variable '{arr}' is not an array")
+            arr.sort()
+            return arr
+        if name =='reverse':
+            arr = args[0]
+            if not isinstance(arr, list):
+                raise ValueError(f"Variable '{arr}' is not an array")
+            arr.reverse()
+            return arr
+        if name == 'exit':
+            exit()
+        if name == 'typeof':
+            if isinstance(args[0], str):
+                return 'string'
+            if isinstance(args[0], int):
+                return 'int'
+            if isinstance(args[0], float):
+                return 'float'
+            if isinstance(args[0], list):
+                return 'array'
+            if args[0] is None:
+                return 'null'
+            if isinstance(args[0], bool):
+                return 'bool'
+            if args[0] == 'function':
+                return 'function'
+            raise ValueError(f"Unknown type of {args[0]}")
+        if name == 'floor':
+            return math.floor(args[0])
+        if name == 'ceil':
+            return math.ceil(args[0])
+        if name == 'round':
+            return round(args[0])
+        if name == 'append':
+            arr, el = args
+            if not isinstance(arr, list):
+                raise ValueError(f"Variable '{arr}' is not an array")
+            arr.append(el)
+            return arr
+        if name == 'pop':
+            arr = args[0]
+            el = args[1]
+            if not isinstance(arr, list):
+                raise ValueError(f"Variable '{arr}' is not an array")
+            return arr.pop(el)
+        if name == 'push':
+            arr, el = args
+            if not isinstance(arr, list):
+                raise ValueError(f"Variable '{arr}' is not an array")
+            arr.push(el)
         if name == 'abs':
             return abs(args[0])
         if name == 'log':
@@ -797,22 +969,34 @@ def eval_ast(node):
         if name in vars:
             return vars[name]
         raise NameError(f"Variable '{name}' is not defined")
+    if node[0] == 'arrindx':
+        name, _ = node[1]
+        indx = node[2]
+        if isinstance(indx, tuple):
+            indx = eval_ast(indx)
+            indx = int(indx)
+        else:
+            indx = int(indx)
+            
+        if indx < 0 or indx >= len(vars[name]):
+            raise IndexError(f"Index '{indx}' is out of range")
+            
+        if isinstance(vars[name], list):
+            return vars[name][indx]
+        elif isinstance(vars[name], str):
+            return vars[name][indx]
+        
+        raise NameError(f"Variable '{name}' is not defined or it not list")
     if isinstance(node, tuple) and len(node) == 3:
         op, left, right = node
         left_val = eval_ast(left)
         right_val = eval_ast(right)
-        if op == '+':
-            return left_val + right_val
-        if op == '-':
-            return left_val - right_val
-        if op == '*':
-            return left_val * right_val
-        if op == '/':
-            return left_val / right_val
-        if op == '^':
-            return left_val ** right_val
-        if op == '%':
-            return left_val % right_val
+        if op == '+': return left_val + right_val
+        if op == '-': return left_val - right_val
+        if op == '*': return left_val * right_val
+        if op == '/': return left_val / right_val
+        if op == '^': return left_val ** right_val
+        if op == '%': return left_val % right_val
     raise ValueError(f"Unknown node: {node}")
 
 # === Test Run ===
