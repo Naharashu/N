@@ -47,9 +47,12 @@ symbol_table = {
     'sort': 'function',
     'reverse': 'function',
     'md5': 'function',
+    'sha256': 'function',
+    'sha1': 'function',
     'charCodeAt': 'function',
     'charCodeFrom': 'function',
-    'substring': 'function'
+    'substring': 'function',
+    'partof': 'keyword'
 }
 
 mod_vars = {}
@@ -77,11 +80,11 @@ funcs = {}
 
 # === Lexer ===
 tokens = (
-    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'ID',
+    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL'
 )
 
 t_PLUS = r'\+'
@@ -110,7 +113,7 @@ t_LTE = r'<='
 t_COMMA = r','
 
 def t_op(t):
-    r'\+\=|-\=|\*\=|\/\='
+    r'\+\=|-\=|\*\=|\/\=|\^\=|\>\>|\<\<'
     return t
 
 def t_CONTINUE(t):
@@ -157,6 +160,10 @@ def t_VAR(t):
     r'var'
     return t
 
+def t_FOREACH(t):
+    r'foreach'
+    return t
+
 def t_FOR(t):
     r'for'
     return t
@@ -194,7 +201,7 @@ def t_WHILE(t):
     return t
 
 def t_ID(t):
-    r'[a-zA-Z_][a-zA-Z_0-9]*'
+    r'[a-zA-Zа-яА-ЯёЁ_][a-zA-Zа-яА-ЯёЁ_0-9]*'
     t.value = (t.value, symbol_lookup(t.value))
     return t
 
@@ -239,7 +246,7 @@ precedence = (
     ('right', 'UMINUS', 'UPLUS'),
     ('nonassoc', 'EQ', 'op'),
     ('nonassoc', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'LBRACK', 'RBRACK'),
-    ('nonassoc', 'FUNC', 'VAR', 'FOR', 'RETURN', 'IF', 'OTHERWISE', 'ELSE', 'WHILE'),
+    ('nonassoc', 'FUNC', 'VAR', 'FOR', 'RETURN', 'IF', 'OTHERWISE', 'ELSE', 'WHILE', 'FOREACH'),
 )
 
 def p_program(p):
@@ -341,8 +348,10 @@ def p_factor_id(p):
 def p_factor_array(p):
     'factor : array'
     p[0] = p[1]
-
-
+    
+def p_factor_null(p):
+    'factor : NULL'
+    p[0] = ('null',)
 
 def p_expression_return(p):
     'expression : RETURN retval'
@@ -398,10 +407,10 @@ def p_expression_break(p):
 def p_expression_pass(p):
     'expression : PASS'
     p[0] = ('pass',)
-    
+
 def p_cond_mul(p):
     '''cond : LPAREN cond AND cond RPAREN
-    | LPAREN cond OR cond RPAREN'''
+            | LPAREN cond OR cond RPAREN'''
     p[0] = (p[3], p[2], p[4])
 
 def p_cond_logic(p):
@@ -422,7 +431,7 @@ def p_logic(p):
              | IS
              | IN'''
     p[0] = p[1]
-    
+
 def p_expression_logic(p):
     '''expression : expression AND expression
                   | expression OR expression'''
@@ -496,12 +505,19 @@ def p_expression_for(p):
     name, _ = p[3]
     p[0] = ('for', name, p[5], p[7], p[9])
 
+def p_expression_foreach(p):
+    'expression : FOREACH LPAREN ID IN expression RPAREN block'
+    name, _ = p[3]
+    iterable = p[5]
+    body = p[7]
+    p[0] = ('foreach', name, iterable, body)
+
 def p_expression_assign(p):
     'expression : VAR ID EQ expression'
     name, _ = p[2]
     val = p[4]
     p[0] = ('assign', name, val)
-    
+
 def p_expression_plain_assign(p):
     'expression : ID EQ expression'
     name, _ = p[1]
@@ -514,15 +530,15 @@ def p_expression_newAssign(p):
     opera = p[2]
     val = p[3]
     p[0] = ('newAssign', name, val, opera)
-    
+
 def p_array_index(p):
     '''expression : ID LBRACK expression RBRACK'''
-    
     p[0] = ('arrindx', p[1], p[3])
 
 def p_error(p):
     if p:
-        print(f"Syntax error at token '{p.value}' (type: {p.type}) on line {p.lineno}")
+        line = lines[p.lineno - 1] if p.lineno <= len(lines) else ""
+        print(f"Syntax error at token '{p.value}' (type: {p.type}) on line {p.lineno}: {line.strip()}")
         while p and p.type not in ('\n', 'RBRACKET', 'SEMI'):
             lexer.skip(1)
             p = lexer.token()
@@ -559,6 +575,8 @@ def eval_ast(node, localVarsCache=None):
         raise NameError(f"'{node[1]}' is not a function")
     if node[0] == 'neg':
         return -eval_ast(node[1])
+    if node[0] == 'null':
+        return None
     if node[0] == 'import':
         modul = node[1]
         mod_vars[modul] = {}
@@ -604,7 +622,6 @@ def eval_ast(node, localVarsCache=None):
                 globals()['curmod'] = old_cur
             else:
                 del globals()['curmod']
-                
             return result
         raise NameError(f"Function '{func}' not found in module '{modul}'")
     if node[0] == 'array':
@@ -672,6 +689,34 @@ def eval_ast(node, localVarsCache=None):
                     continue
             result = block_result
         return result
+    if node[0] == 'foreach':
+        name = node[1]
+        iterable = eval_ast(node[2])
+        body = node[3]
+        result = None
+        if not isinstance(iterable, (list, str)):
+            raise ValueError(f"Expected an iterable in foreach, got {type(iterable).__name__}")
+        oldval_ = vars.get(name) 
+        for item in iterable:
+            vars[name] = item 
+            localVarsCache = {name: item} 
+            block_result = eval_ast(body, localVarsCache)
+            if isinstance(block_result, tuple) and block_result[0] in ('break', 'return', 'continue'):
+                if block_result[0] == 'break':
+                    break
+                if block_result[0] == 'continue':
+                    continue
+                if oldval_ is None:
+                    vars.pop(name, None)
+                else:
+                    vars[name] = oldval_
+                return block_result
+        result = block_result
+        if oldval_ is None:
+            vars.pop(name, None)
+        else:
+            vars[name] = oldval_
+        return result
     if node[0] == 'for':
         _, var, start, end, body = node
         start_val = eval_ast(start)
@@ -733,6 +778,12 @@ def eval_ast(node, localVarsCache=None):
             res *= val
         elif opera == '/=':
             res /= val
+        elif opera == '^=':
+            res ^= val
+        elif opera == '>>':
+            res >> val
+        elif opera == '<<':
+            res << val
         else:
             raise NameError(f"Operation '{opera}' is not allowed")
         vars[name] = res
@@ -769,7 +820,7 @@ def eval_ast(node, localVarsCache=None):
             return left is right
         elif op == 'partof':
             if not isinstance(right, (list, str, tuple)):
-                raise ValueError(f"Operator 'partof' expects an iterable as right operand, got {type(right).name}")
+                raise ValueError(f"Operator 'partof' expects an iterable as right operand, got {type(right).__name__}")
             return left in right
         else:
             raise ValueError(f"Unknown operator in cond: {op}")
@@ -778,23 +829,14 @@ def eval_ast(node, localVarsCache=None):
         args = []
         for a in ar:
             if a[0] == 'id':
-                value = vars.get(a[1])
+                value = localVarsCache.get(a[1], vars.get(a[1]))
                 if value is None:
                     raise NameError(f"Variable '{a[1]}' is not defined")
                 args.append(value)
             else:
-                args.append(eval_ast(a)) 
-        if name == 'output' and len(args) == 1:
-            arg = args[0]
-            if isinstance(arg, (int, float, str, bool)):
-                print(arg)
-                return None
-            if arg[0] in ('id', 'number'):
-                value = arg[1] if arg[0] == 'number' else localVarsCache(arg[1], vars[arg[1]])
-                print(value)
-                return None
+                args.append(eval_ast(a, localVarsCache))
         if name == 'output':
-            print(*[str(arg) if isinstance(arg, list) else arg for arg in args], file=sys.stderr, flush=True)
+            print(*[str(arg) if isinstance(arg, list) else arg for arg in args])
             return None
         if name == 'input':
             prompt = args[0] if len(args) != 0 else None
@@ -815,14 +857,11 @@ def eval_ast(node, localVarsCache=None):
             string = args[0]
             start = args[1]
             end = args[2]
-            if isinstance(start, tuple):
-                start = eval_ast(start)
-                start = int(start)
-            if isinstance(end, tuple):
-                end = eval_ast(end)
-                end = int(end)
-            int(start)
-            int(end)
+            if not isinstance(string, str):
+                raise ValueError(f"Expected a string for substring, got {type(string).__name__}")
+            if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+                raise ValueError("Start and end indices must be numbers")
+            start, end = int(start), int(end)
             return string[start:end]
         if name == 'split':
             string = args[0]
@@ -840,6 +879,10 @@ def eval_ast(node, localVarsCache=None):
             return str(args[0])
         if name == 'md5':
             return hashlib.md5(args[0].encode()).hexdigest()
+        if name == 'sha1':
+            return hashlib.sha1(args[0].encode()).hexdigest()
+        if name =='sha256':
+            return hashlib.sha256(args[0].encode()).hexdigest()
         if name == 'replace':
             old = args[0]
             new = args[1]
@@ -848,13 +891,13 @@ def eval_ast(node, localVarsCache=None):
         if name == 'sort':
             arr = args[0]
             if not isinstance(arr, list):
-                raise ValueError(f"Variable '{arr}' is not an array")
+                raise ValueError(f"Expected an array for sort, got {type(arr).__name__}")
             arr.sort()
             return arr
-        if name =='reverse':
+        if name == 'reverse':
             arr = args[0]
             if not isinstance(arr, list):
-                raise ValueError(f"Variable '{arr}' is not an array")
+                raise ValueError(f"Expected an array for reverse, got {type(arr).__name__}")
             arr.reverse()
             return arr
         if name == 'exit':
@@ -884,20 +927,23 @@ def eval_ast(node, localVarsCache=None):
         if name == 'append':
             arr, el = args
             if not isinstance(arr, list):
-                raise ValueError(f"Variable '{arr}' is not an array")
+                raise ValueError(f"Expected an array for append, got {type(arr).__name__}")
             arr.append(el)
             return arr
         if name == 'pop':
             arr = args[0]
-            el = args[1]
+            index = int(args[1]) if len(args) > 1 else -1
             if not isinstance(arr, list):
-                raise ValueError(f"Variable '{arr}' is not an array")
-            return arr.pop(el)
+                raise ValueError(f"Expected an array for pop, got {type(arr).__name__}")
+            if index >= len(arr) or index < -len(arr):
+                raise IndexError(f"Index {index} out of range")
+            return arr.pop(index)
         if name == 'push':
             arr, el = args
             if not isinstance(arr, list):
-                raise ValueError(f"Variable '{arr}' is not an array")
-            arr.push(el)
+                raise ValueError(f"Expected an array for push, got {type(arr).__name__}")
+            arr.append(el)
+            return arr
         if name == 'abs':
             return abs(args[0])
         if name == 'log':
@@ -977,15 +1023,12 @@ def eval_ast(node, localVarsCache=None):
             indx = int(indx)
         else:
             indx = int(indx)
-            
         if indx < 0 or indx >= len(vars[name]):
             raise IndexError(f"Index '{indx}' is out of range")
-            
         if isinstance(vars[name], list):
             return vars[name][indx]
         elif isinstance(vars[name], str):
             return vars[name][indx]
-        
         raise NameError(f"Variable '{name}' is not defined or it not list")
     if isinstance(node, tuple) and len(node) == 3:
         op, left, right = node
@@ -1002,10 +1045,12 @@ def eval_ast(node, localVarsCache=None):
 # === Test Run ===
 while True:
     code = input("Enter your code: ")
+    lines = code.split('\n')
     if code.startswith("run "):
         filename = code[4:].strip()
         with open(filename, "r", encoding='utf-8') as f:
             code = f.read()
+            lines = code.split('\n')
     result = parser.parse(code)
     if result is None:
         print("Parsing failed due to syntax error")
