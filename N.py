@@ -209,7 +209,7 @@ def t_WHILE(t):
     return t
 
 def t_ID(t):
-    r'[a-zA-Zа-яА-ЯёЁ_][a-zA-Zа-яА-ЯёЁ_0-9]*'
+    r'[a-zA-Z_][a-zA-Z_0-9]*'
     t.value = (t.value, symbol_lookup(t.value))
     return t
 
