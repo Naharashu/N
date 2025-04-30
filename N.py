@@ -84,7 +84,7 @@ tokens = (
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH'
 )
 
 t_PLUS = r'\+'
@@ -139,6 +139,14 @@ def t_OR(t):
 def t_IMPORT(t):
     r'import'
     return t
+    
+def t_TRY(t):
+	r'try'
+	return t
+	
+def t_CATCH(t):
+	r'catch'
+	return t
 
 def t_TRUE(t):
     r'true'
@@ -348,7 +356,7 @@ def p_factor_id(p):
 def p_factor_array(p):
     'factor : array'
     p[0] = p[1]
-    
+
 def p_factor_null(p):
     'factor : NULL'
     p[0] = ('null',)
@@ -384,6 +392,10 @@ def p_ternar(p):
     body = p[3]
     elsebody = p[5]
     p[0] = ('ternar', cond, body, elsebody)
+    
+def p_try_catch(p):
+	'expression : TRY block CATCH LPAREN ID RPAREN block'
+	p[0] = ('try_catch', p[2], p[5], p[7])
 
 def p_expression_while(p):
     'expression : WHILE cond block'
@@ -665,6 +677,12 @@ def eval_ast(node, localVarsCache=None):
         elsebody = node[3]
         cond1 = eval_ast(cond)
         return eval_ast(body if cond1 else elsebody)
+    if node[0] == 'try_catch':
+    	try:
+    		return eval_ast(node[1], localVarsCache)
+    	except Exception as e:
+    		localVarsCache[node[2]] = str(e)
+    		return eval_ast(node[3], localVarsCache)
     if node[0] == 'ifExp':
         cond = node[1]
         body1 = node[2]
