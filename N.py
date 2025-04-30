@@ -84,7 +84,7 @@ tokens = (
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD'
 )
 
 t_PLUS = r'\+'
@@ -170,6 +170,10 @@ def t_DO(t):
 
 def t_VAR(t):
     r'var'
+    return t
+
+def t_YIELD(t):
+    r'yield'
     return t
 
 def t_FOREACH(t):
@@ -377,6 +381,10 @@ def p_retval_multiple(p):
 def p_retval_single(p):
     'retval : expression'
     p[0] = p[1]
+    
+def p_yield(p):
+    'expression : YIELD expression'
+    p[0] = ('yield', p[2])
 
 def p_import(p):
     'expression : IMPORT STRING'
@@ -569,6 +577,7 @@ def p_error(p):
 parser = yacc.yacc()
 
 # === Interpreter ===
+
 def eval_ast(node, localVarsCache=None):
     global vars, mod_vars, mod_funcs, curmod, vars_stack
     if localVarsCache is None:
@@ -588,7 +597,7 @@ def eval_ast(node, localVarsCache=None):
             return vars[node[1]]
         raise NameError(f"Variable '{node[1]}' not defined")
     if node[0] == 'name':
-    	return node[1]
+        return node[1]
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
@@ -689,14 +698,14 @@ def eval_ast(node, localVarsCache=None):
         cond1 = eval_ast(cond)
         return eval_ast(body if cond1 else elsebody)
     if node[0] == 'try_catch':
-    	try:
-    		return eval_ast(node[1], localVarsCache)
-    	except Exception as e:
-    		localVarsCache[node[2]] = str(e)
-    		return eval_ast(node[3], localVarsCache)
+        try:
+            return eval_ast(node[1], localVarsCache)
+        except Exception as e:
+            localVarsCache[node[2]] = str(e)
+            return eval_ast(node[3], localVarsCache)
     if node[0] == 'raise':
-    	value = eval_ast(node[1])
-    	raise Exception(value)
+        value = eval_ast(node[1])
+        raise Exception(value)
     if node[0] == 'ifExp':
         cond = node[1]
         body1 = node[2]
@@ -1013,14 +1022,7 @@ def eval_ast(node, localVarsCache=None):
             return res
         if name == 'factorial':
             res = args[0]
-            if not isinstance(res, int) or res < 0:
-                raise ValueError("Factorial expects a non-negative integer")
-            if res == 0 or res == 1:
-                return 1
-            result = 1
-            for i in range(2, res + 1):
-                result *= i
-            return result
+            return math.factorial(res)
         if 'curmod' in globals() and curmod in mod_funcs and name in mod_funcs[curmod]:
             arg_names, body = mod_funcs[curmod][name]
             old_vars = vars.copy()
