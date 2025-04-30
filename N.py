@@ -84,7 +84,7 @@ tokens = (
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE'
 )
 
 t_PLUS = r'\+'
@@ -146,6 +146,10 @@ def t_TRY(t):
 	
 def t_CATCH(t):
 	r'catch'
+	return t
+	
+def t_RAISE(t):
+	r'raise'
 	return t
 
 def t_TRUE(t):
@@ -352,6 +356,7 @@ def p_factor_bool(p):
 def p_factor_id(p):
     'factor : ID'
     p[0] = p[1]
+   
 
 def p_factor_array(p):
     'factor : array'
@@ -407,6 +412,10 @@ def p_expression_alwaysdo(p):
     'expression : ALWAYS DO block'
     body = p[3]
     p[0] = ('alwaysDo', body)
+    
+def p_expression_raise(p):
+	'expression : RAISE expression'
+	p[0] = ('raise', p[2])
 
 def p_expression_continue(p):
     'expression : CONTINUE'
@@ -578,6 +587,8 @@ def eval_ast(node, localVarsCache=None):
         if node[1] in vars:
             return vars[node[1]]
         raise NameError(f"Variable '{node[1]}' not defined")
+    if node[0] == 'name':
+    	return node[1]
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
@@ -683,6 +694,9 @@ def eval_ast(node, localVarsCache=None):
     	except Exception as e:
     		localVarsCache[node[2]] = str(e)
     		return eval_ast(node[3], localVarsCache)
+    if node[0] == 'raise':
+    	value = eval_ast(node[1])
+    	raise Exception(value)
     if node[0] == 'ifExp':
         cond = node[1]
         body1 = node[2]
