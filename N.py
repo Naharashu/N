@@ -695,11 +695,11 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'name':
         return node[1]
     if node[0] == 'dict':
-    	pairs = node[1]
-    	result = {}
-    	for key, value in pairs:
-    		result[key] = eval_ast(value)
-    	return result
+        pairs = node[1]
+        result = {}
+        for key, value in pairs:
+            result[key] = eval_ast(value)
+        return result
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
@@ -958,14 +958,21 @@ def eval_ast(node, localVarsCache=None):
             raise ValueError(f"Unknown operator in cond: {op}")
     if node[0] == 'call':
         name, ar = node[1], node[2]
-        if name in funcs and funcs[name][0] == 'define':
-            _, args_names, body = funcs[name]
-            def_args = ar
-            if len(def_args) != len(args_names):
-                raise ValueError(f"Macro '{name}' expects {len(args_names)} arguments, got {len(def_args)}")
-            replacements = dict(zip(args_names, def_args))
-            expanded = replace_params(body, replacements)
-            return eval_ast(expanded, localVarsCache)
+        if name in funcs:
+            if funcs[name][0] == 'define':
+                _, args_names, body = funcs[name]
+                args = [eval_ast(a, localVarsCache) for a in ar]
+                replacements = {}
+                for arg_name, arg_value in zip(args_names, args):
+                    replacements[arg_name] = arg_value
+                new_body = replace_params(body, replacements)
+                enter_scope()
+                result = eval_ast(new_body, localVarsCache)
+                exit_scope()
+                
+                if isinstance(result, tuple) and result[0] == 'return':
+                    return result[1]
+                return result
         args = [eval_ast(a, localVarsCache) for a in ar]
         if name == 'output':
             print(*[str(arg) if isinstance(arg, list) else arg for arg in args])
@@ -1136,8 +1143,8 @@ def eval_ast(node, localVarsCache=None):
         symbol_table[name] = 'function'
         return None
     if node[0] == 'lambda':
-    	params, body = node[1], node[2]
-    	return ('func', params, body)
+        params, body = node[1], node[2]
+        return ('func', params, body)
     if node[0] == 'arrindx':
         name, _ = node[1]
         indx = eval_ast(node[2])
@@ -1145,9 +1152,9 @@ def eval_ast(node, localVarsCache=None):
         if not isinstance(arr, (list, str, dict)):
             raise TypeError(f"Variable '{name}' is not indexable")
         if isinstance(arr, dict):
-        	if indx not in arr:
-        		raise KeyError(f'key {indx} not found in dict')
-        	return arr[indx]
+            if indx not in arr:
+                raise KeyError(f'key {indx} not found in dict')
+            return arr[indx]
         if not isinstance(indx, (int, float)) or indx < 0 or indx >= len(arr):
             raise IndexError(f"Index {indx} out of range")
         return arr[int(indx)]
