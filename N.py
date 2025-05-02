@@ -5,11 +5,11 @@ import random
 import sys
 import hashlib
 
-lines = []
-
 # === Symbol Table ===
 symbol_table = {
     'var': 'keyword',
+    'const': 'keyword',
+    'define': 'keyword',
     'exit': 'function',
     'split': 'function',
     'sqrt': 'function',
@@ -55,9 +55,48 @@ symbol_table = {
     'partof': 'keyword'
 }
 
-mod_vars = {}
-vars_stack = []
-mod_funcs = {}
+# === Scope Management ===
+vars = {'pi': 3.14159265, 'e': 2.71828183, 'phi': 1.61803399}  
+scope_stack = [{}] 
+consts = {}  
+mod_vars = {}  
+mod_funcs = {}  
+vars_stack = [] 
+funcs = {}  
+
+def enter_scope():
+    scope_stack.append({})
+
+def exit_scope():
+    if len(scope_stack) > 1:
+        scope_stack.pop()
+
+def find_variable(name):
+    for scope in reversed(scope_stack):
+        if name in scope:
+            return scope[name]
+    if name in vars:
+        return vars[name]
+    if name in consts:
+        return consts[name]
+    raise NameError(f"Variable '{name}' not defined in current scope")
+
+def update_variable(name, value, is_const=False):
+    if name in scope_stack[-1]:
+        if name in consts:
+            raise ValueError(f"Cannot reassign constant '{name}'")
+        scope_stack[-1][name] = value
+    elif any(name in scope for scope in scope_stack[:-1]):
+        for scope in reversed(scope_stack[:-1]):
+            if name in scope:
+                if name in consts:
+                    raise ValueError(f"Cannot reassign constant '{name}'")
+                scope[name] = value
+                break
+    else:
+        scope_stack[-1][name] = value
+        if is_const:
+            consts[name] = value
 
 # === Trigonometric Functions in Degrees ===
 def sin_deg(x):
@@ -75,16 +114,13 @@ def cotan_deg(x):
 def symbol_lookup(identifier):
     return symbol_table.get(identifier, 'unknown')
 
-vars = {'pi': 3.14159265, 'e': 2.71828183, 'phi': 1.61803399}
-funcs = {}
-
 # === Lexer ===
 tokens = (
-    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
+    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'CONST', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD', 'DEFINE', 'LAMBDA'
 )
 
 t_PLUS = r'\+'
@@ -116,6 +152,10 @@ def t_op(t):
     r'\+\=|-\=|\*\=|\/\=|\^\=|\>\>|\<\<'
     return t
 
+def t_DEFINE(t):
+    r'define'
+    return t
+
 def t_CONTINUE(t):
     r'continue'
     return t
@@ -139,18 +179,18 @@ def t_OR(t):
 def t_IMPORT(t):
     r'import'
     return t
-    
+
 def t_TRY(t):
-	r'try'
-	return t
-	
+    r'try'
+    return t
+
 def t_CATCH(t):
-	r'catch'
-	return t
-	
+    r'catch'
+    return t
+
 def t_RAISE(t):
-	r'raise'
-	return t
+    r'raise'
+    return t
 
 def t_TRUE(t):
     r'true'
@@ -172,6 +212,10 @@ def t_VAR(t):
     r'var'
     return t
 
+def t_CONST(t):
+    r'const'
+    return t
+
 def t_YIELD(t):
     r'yield'
     return t
@@ -183,6 +227,10 @@ def t_FOREACH(t):
 def t_FOR(t):
     r'for'
     return t
+    
+def t_LAMBDA(t):
+	r'lambda'
+	return t
 
 def t_FUNC(t):
     r'func'
@@ -347,11 +395,11 @@ def p_factor_group(p):
 
 def p_factor_number(p):
     'factor : NUMBER'
-    p[0] = p[1]
+    p[0] = ('number', p[1])
 
 def p_factor_string(p):
     'factor : STRING'
-    p[0] = p[1]
+    p[0] = ('string', p[1])
 
 def p_factor_bool(p):
     'factor : BOOL'
@@ -359,8 +407,7 @@ def p_factor_bool(p):
 
 def p_factor_id(p):
     'factor : ID'
-    p[0] = p[1]
-   
+    p[0] = ('id', p[1])
 
 def p_factor_array(p):
     'factor : array'
@@ -369,6 +416,15 @@ def p_factor_array(p):
 def p_factor_null(p):
     'factor : NULL'
     p[0] = ('null',)
+
+def p_expression_def(p):
+    'expression : DEFINE ID LPAREN params RPAREN block'
+    name, _ = p[2]
+    params = p[4]
+    body = p[6]
+    funcs[name] = ('define', params, body)
+    symbol_table[name] = 'define'
+    p[0] = ('define', name, params, body)
 
 def p_expression_return(p):
     'expression : RETURN retval'
@@ -382,6 +438,17 @@ def p_retval_single(p):
     'retval : expression'
     p[0] = p[1]
     
+def p_expression_lambda(p):
+	'expression : LAMBDA LPAREN params RPAREN block'
+	p[0] = ('lambda', p[3], p[5])
+	
+def p_factor_lambda_call(p):
+    'factor : LPAREN expression RPAREN LPAREN arguments RPAREN'
+    p[0] = ('call', p[2], p[5])
+def p_factor_lambda_call_noargs(p):
+    'factor : LPAREN expression RPAREN LPAREN RPAREN'
+    p[0] = ('call', p[2], [])
+
 def p_yield(p):
     'expression : YIELD expression'
     p[0] = ('yield', p[2])
@@ -405,10 +472,10 @@ def p_ternar(p):
     body = p[3]
     elsebody = p[5]
     p[0] = ('ternar', cond, body, elsebody)
-    
+
 def p_try_catch(p):
-	'expression : TRY block CATCH LPAREN ID RPAREN block'
-	p[0] = ('try_catch', p[2], p[5], p[7])
+    'expression : TRY block CATCH LPAREN ID RPAREN block'
+    p[0] = ('try_catch', p[2], p[5], p[7])
 
 def p_expression_while(p):
     'expression : WHILE cond block'
@@ -420,10 +487,10 @@ def p_expression_alwaysdo(p):
     'expression : ALWAYS DO block'
     body = p[3]
     p[0] = ('alwaysDo', body)
-    
+
 def p_expression_raise(p):
-	'expression : RAISE expression'
-	p[0] = ('raise', p[2])
+    'expression : RAISE expression'
+    p[0] = ('raise', p[2])
 
 def p_expression_continue(p):
     'expression : CONTINUE'
@@ -474,8 +541,7 @@ def p_factor_function(p):
     if typ == 'function' or name in funcs:
         p[0] = ('call', name, args)
     else:
-        print(f"Error: '{name}' is not a function")
-        p[0] = ('error', name)
+        p[0] = ('call', name, args)  # Буде перевірено в інтерпретаторі
 
 def p_arguments_multiple(p):
     'arguments : arguments COMMA expression'
@@ -490,12 +556,6 @@ def p_expression_func_def(p):
     name, _ = p[2]
     params = p[4]
     body = p[6]
-    if 'curmod' in globals():
-        mod_funcs.setdefault(curmod, {})[name] = (params, body)
-        symbol_table[name] = 'function'
-    else:
-        funcs[name] = (params, body)
-        symbol_table[name] = 'function'
     p[0] = ('ownfunc', name, params, body)
 
 def p_factor_mod_func(p):
@@ -528,6 +588,30 @@ def p_params_empty(p):
 def p_param(p):
     'param : ID'
     p[0] = p[1]
+    
+def p_dict(p):
+    'dict : LBRACKET dict_pairs RBRACKET'
+    p[0] = ('dict', p[2])
+
+def p_dict_pairs_multiple(p):
+    'dict_pairs : dict_pairs COMMA dict_pair'
+    p[0] = p[1] + [p[3]]
+
+def p_dict_pairs_single(p):
+    'dict_pairs : dict_pair'
+    p[0] = [p[1]]
+
+def p_dict_pairs_empty(p):
+    'dict_pairs :'
+    p[0] = []
+
+def p_dict_pair(p):
+    'dict_pair : STRING TWODOTS element'
+    p[0] = (p[1], p[3])
+
+def p_factor_dict(p):
+    'factor : dict'
+    p[0] = p[1]
 
 def p_expression_for(p):
     'expression : FOR LPAREN ID COMMA expression COMMA expression RPAREN block'
@@ -542,10 +626,12 @@ def p_expression_foreach(p):
     p[0] = ('foreach', name, iterable, body)
 
 def p_expression_assign(p):
-    'expression : VAR ID EQ expression'
+    '''expression : VAR ID EQ expression
+                  | CONST ID EQ expression'''
+    type = p[1]
     name, _ = p[2]
     val = p[4]
-    p[0] = ('assign', name, val)
+    p[0] = ('assign', type, name, val)
 
 def p_expression_plain_assign(p):
     'expression : ID EQ expression'
@@ -566,8 +652,7 @@ def p_array_index(p):
 
 def p_error(p):
     if p:
-        line = lines[p.lineno - 1] if p.lineno <= len(lines) else ""
-        print(f"Syntax error at token '{p.value}' (type: {p.type}) on line {p.lineno}: {line.strip()}")
+        print(f"Syntax error at token '{p.value}' (type: {p.type}) on line {p.lineno}")
         while p and p.type not in ('\n', 'RBRACKET', 'SEMI'):
             lexer.skip(1)
             p = lexer.token()
@@ -577,11 +662,23 @@ def p_error(p):
 parser = yacc.yacc()
 
 # === Interpreter ===
+def replace_params(node, replacements):
+    if isinstance(node, list):
+        return [replace_params(child, replacements) for child in node]
+    if not isinstance(node, tuple):
+        return node
+    if node[0] == 'id' and isinstance(node[1], tuple) and node[1][0] in replacements:
+        return replacements[node[1][0]]
+    return tuple(
+        replace_params(child, replacements) if isinstance(child, (tuple, list)) else child
+        for child in node
+    )
 
 def eval_ast(node, localVarsCache=None):
-    global vars, mod_vars, mod_funcs, curmod, vars_stack
+    global scope_stack, vars, consts, mod_vars, mod_funcs, vars_stack, funcs
     if localVarsCache is None:
         localVarsCache = {}
+    
     if isinstance(node, str) and node in ('true', 'false'):
         return node == 'true'
     if isinstance(node, (int, float, str, list, bool)):
@@ -591,18 +688,27 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'string':
         return node[1]
     if node[0] == 'id':
-        if node[1] in localVarsCache:
-            return localVarsCache[node[1]]
-        if node[1] in vars:
-            return vars[node[1]]
-        raise NameError(f"Variable '{node[1]}' not defined")
+        var_name = node[1][0] if isinstance(node[1], tuple) else node[1]
+        if var_name in localVarsCache:
+            return localVarsCache[var_name]
+        return find_variable(var_name)
     if node[0] == 'name':
         return node[1]
+    if node[0] == 'dict':
+    	pairs = node[1]
+    	result = {}
+    	for key, value in pairs:
+    		result[key] = eval_ast(value)
+    	return result
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
-            result = eval_ast(stmt)
+            result = eval_ast(stmt, localVarsCache)
         return result
+    if node[0] == 'define':
+        name, params, body = node[1], node[2], node[3]
+        funcs[name] = ('define', params, body)
+        return None
     if node[0] == 'error':
         raise NameError(f"'{node[1]}' is not a function")
     if node[0] == 'neg':
@@ -613,20 +719,21 @@ def eval_ast(node, localVarsCache=None):
         modul = node[1]
         mod_vars[modul] = {}
         mod_funcs[modul] = {}
-        curmod = modul
         try:
             with open(modul + '.nmod', 'r', encoding='utf-8') as f:
                 code = f.read()
             parsed = parser.parse(code)
             if parsed:
-                vars_stack.append(vars.copy())
-                vars.clear()
-                vars.update(mod_vars[modul])
+                enter_scope()
+                vars_stack.append(scope_stack[-1].copy())
+                scope_stack[-1].update(mod_vars[modul])
+                globals()['curmod'] = modul
                 eval_ast(parsed)
-                mod_vars[modul] = vars.copy()
-                vars.clear()
-                vars.update(vars_stack.pop())
-            del curmod
+                mod_vars[modul] = scope_stack[-1].copy()
+                mod_funcs[modul] = {k: v for k, v in scope_stack[-1].items() if isinstance(v, tuple) and v[0] == 'func'}
+                exit_scope()
+                scope_stack[-1] = vars_stack.pop()
+                del globals()['curmod']
         except FileNotFoundError:
             print(f"Module '{modul}' not found")
         return None
@@ -639,38 +746,31 @@ def eval_ast(node, localVarsCache=None):
         modul, func, args = node[1], node[2], node[3]
         args = [eval_ast(arg) for arg in args]
         if modul in mod_funcs and func in mod_funcs[modul]:
-            arg_names, body = mod_funcs[modul][func]
-            vars_stack.append(vars.copy())
-            vars.clear()
-            vars.update(mod_vars[modul])
+            arg_names, body = mod_funcs[modul][func][1], mod_funcs[modul][func][2]
+            enter_scope()
             for i in range(min(len(arg_names), len(args))):
-                vars[arg_names[i]] = args[i]
-            old_cur = globals().get('curmod')
+                update_variable(arg_names[i], args[i])
             globals()['curmod'] = modul
             result = eval_ast(body)
-            vars.clear()
-            vars.update(vars_stack.pop())
-            if old_cur is not None:
-                globals()['curmod'] = old_cur
-            else:
-                del globals()['curmod']
+            exit_scope()
+            del globals()['curmod']
             return result
         raise NameError(f"Function '{func}' not found in module '{modul}'")
     if node[0] == 'array':
         els = node[1]
         return [eval_ast(el) for el in els]
     if node[0] == 'block':
-        _, statements = node
-        if len(statements) == 1:
-            return eval_ast(statements[0])
+        enter_scope()
         result = None
-        for stmt in statements:
-            result = eval_ast(stmt)
+        for stmt in node[1]:
+            result = eval_ast(stmt, localVarsCache)
             if isinstance(result, tuple) and result[0] in ('return', 'continue', 'break'):
+                exit_scope()
                 return result
+        exit_scope()
         return result
     if node[0] == 'return':
-        return eval_ast(node[1])
+        return ('return', eval_ast(node[1], localVarsCache))
     if node[0] == 'continue':
         return ('continue',)
     if node[0] == 'break':
@@ -681,7 +781,9 @@ def eval_ast(node, localVarsCache=None):
         body = node[1]
         result = None
         while True:
+            enter_scope()
             block_result = eval_ast(body)
+            exit_scope()
             if isinstance(block_result, tuple):
                 if block_result[0] == 'return':
                     return block_result
@@ -701,8 +803,11 @@ def eval_ast(node, localVarsCache=None):
         try:
             return eval_ast(node[1], localVarsCache)
         except Exception as e:
-            localVarsCache[node[2]] = str(e)
-            return eval_ast(node[3], localVarsCache)
+            enter_scope()
+            update_variable(node[2][0], str(e))
+            result = eval_ast(node[3], localVarsCache)
+            exit_scope()
+            return result
     if node[0] == 'raise':
         value = eval_ast(node[1])
         raise Exception(value)
@@ -711,7 +816,10 @@ def eval_ast(node, localVarsCache=None):
         body1 = node[2]
         body2 = node[3]
         cond1 = eval_ast(cond)
-        return eval_ast(body1 if cond1 else body2) if body2 else eval_ast(body1) if cond1 else None
+        enter_scope()
+        result = eval_ast(body1 if cond1 else body2) if body2 else (eval_ast(body1) if cond1 else None)
+        exit_scope()
+        return result
     if node[0] == 'while':
         cond = node[1]
         body = node[2]
@@ -720,7 +828,9 @@ def eval_ast(node, localVarsCache=None):
             cond1 = eval_ast(cond)
             if not cond1:
                 break
+            enter_scope()
             block_result = eval_ast(body)
+            exit_scope()
             if isinstance(block_result, tuple):
                 if block_result[0] == 'return':
                     return block_result
@@ -737,26 +847,18 @@ def eval_ast(node, localVarsCache=None):
         result = None
         if not isinstance(iterable, (list, str)):
             raise ValueError(f"Expected an iterable in foreach, got {type(iterable).__name__}")
-        oldval_ = vars.get(name) 
         for item in iterable:
-            vars[name] = item 
-            localVarsCache = {name: item} 
+            enter_scope()
+            update_variable(name, item)
             block_result = eval_ast(body, localVarsCache)
+            exit_scope()
             if isinstance(block_result, tuple) and block_result[0] in ('break', 'return', 'continue'):
                 if block_result[0] == 'break':
                     break
                 if block_result[0] == 'continue':
                     continue
-                if oldval_ is None:
-                    vars.pop(name, None)
-                else:
-                    vars[name] = oldval_
                 return block_result
-        result = block_result
-        if oldval_ is None:
-            vars.pop(name, None)
-        else:
-            vars[name] = oldval_
+            result = block_result
         return result
     if node[0] == 'for':
         _, var, start, end, body = node
@@ -764,53 +866,42 @@ def eval_ast(node, localVarsCache=None):
         end_val = eval_ast(end)
         if not isinstance(start_val, (int, float)) or not isinstance(end_val, (int, float)):
             raise ValueError("For loop start and end must be numbers")
-        oldval_ = vars.get(var)
+        enter_scope()
+        update_variable(var, start_val)
         result = None
         step = 1 if start_val <= end_val else -1
-        if body[0] == 'block' and len(body[1]) == 1 and body[1][0][0] == 'call' and body[1][0][1] == 'output' and len(body[1][0][2]) == 1 and body[1][0][2][0][0] == 'id' and body[1][0][2][0][1] == var:
-            for i in range(int(start_val), int(end_val) + (1 if step > 0 else -1), step):
-                print(i)
-            return None
         for i in range(int(start_val), int(end_val) + (1 if step > 0 else -1), step):
-            vars[var] = i
-            localVarsCache = {var: i}
+            update_variable(var, i)
             block_result = eval_ast(body, localVarsCache)
             if isinstance(block_result, tuple):
                 if block_result[0] == 'return':
-                    if oldval_ is None:
-                        vars.pop(var, None)
-                    else:
-                        vars[var] = oldval_
+                    exit_scope()
                     return block_result
                 if block_result[0] == 'break':
                     break
                 if block_result[0] == 'continue':
                     continue
             result = block_result
-        if oldval_ is None:
-            vars.pop(var, None)
-        else:
-            vars[var] = oldval_
+        exit_scope()
         return result
     if node[0] == 'assign':
-        _, name, expr = node
+        _, type, name, expr = node
         val = eval_ast(expr)
-        vars[name] = val
+        is_const = type == 'const'
+        update_variable(name, val, is_const)
         return val
     if node[0] == 'assignpl':
         name, expr = node[1], node[2]
         val = eval_ast(expr)
-        if name not in vars:
-            raise NameError(f"Variable '{name}' is not defined")
-        vars[name] = val
+        update_variable(name, val)
         return val
     if node[0] == 'newAssign':
         name = node[1]
         val = eval_ast(node[2])
         opera = node[3]
-        if name not in vars:
-            raise NameError(f"Variable '{name}' is not defined")
-        res = vars[name]
+        res = find_variable(name)
+        if name in consts:
+            raise ValueError(f"Cannot reassign constant '{name}'")
         if opera == '+=':
             res += val
         elif opera == '-=':
@@ -820,14 +911,14 @@ def eval_ast(node, localVarsCache=None):
         elif opera == '/=':
             res /= val
         elif opera == '^=':
-            res ^= val
+            res **= val
         elif opera == '>>':
-            res >> val
+            res >>= val
         elif opera == '<<':
-            res << val
+            res <<= val
         else:
             raise NameError(f"Operation '{opera}' is not allowed")
-        vars[name] = res
+        update_variable(name, res)
         return res
     if node[0] == '&&':
         left = eval_ast(node[1])
@@ -861,21 +952,21 @@ def eval_ast(node, localVarsCache=None):
             return left is right
         elif op == 'partof':
             if not isinstance(right, (list, str, tuple)):
-                raise ValueError(f"Operator 'partof' expects an iterable as right operand, got {type(right).__name__}")
+                raise ValueError(f"Operator 'partof' expects an iterable, got {type(right).__name__}")
             return left in right
         else:
             raise ValueError(f"Unknown operator in cond: {op}")
     if node[0] == 'call':
         name, ar = node[1], node[2]
-        args = []
-        for a in ar:
-            if a[0] == 'id':
-                value = localVarsCache.get(a[1], vars.get(a[1]))
-                if value is None:
-                    raise NameError(f"Variable '{a[1]}' is not defined")
-                args.append(value)
-            else:
-                args.append(eval_ast(a, localVarsCache))
+        if name in funcs and funcs[name][0] == 'define':
+            _, args_names, body = funcs[name]
+            def_args = ar
+            if len(def_args) != len(args_names):
+                raise ValueError(f"Macro '{name}' expects {len(args_names)} arguments, got {len(def_args)}")
+            replacements = dict(zip(args_names, def_args))
+            expanded = replace_params(body, replacements)
+            return eval_ast(expanded, localVarsCache)
+        args = [eval_ast(a, localVarsCache) for a in ar]
         if name == 'output':
             print(*[str(arg) if isinstance(arg, list) else arg for arg in args])
             return None
@@ -922,7 +1013,7 @@ def eval_ast(node, localVarsCache=None):
             return hashlib.md5(args[0].encode()).hexdigest()
         if name == 'sha1':
             return hashlib.sha1(args[0].encode()).hexdigest()
-        if name =='sha256':
+        if name == 'sha256':
             return hashlib.sha256(args[0].encode()).hexdigest()
         if name == 'replace':
             old = args[0]
@@ -966,7 +1057,7 @@ def eval_ast(node, localVarsCache=None):
         if name == 'round':
             return round(args[0])
         if name == 'append':
-            arr, el = args
+            arr, el = args[0], args[1]
             if not isinstance(arr, list):
                 raise ValueError(f"Expected an array for append, got {type(arr).__name__}")
             arr.append(el)
@@ -979,12 +1070,6 @@ def eval_ast(node, localVarsCache=None):
             if index >= len(arr) or index < -len(arr):
                 raise IndexError(f"Index {index} out of range")
             return arr.pop(index)
-        if name == 'push':
-            arr, el = args
-            if not isinstance(arr, list):
-                raise ValueError(f"Expected an array for push, got {type(arr).__name__}")
-            arr.append(el)
-            return arr
         if name == 'abs':
             return abs(args[0])
         if name == 'log':
@@ -1023,47 +1108,49 @@ def eval_ast(node, localVarsCache=None):
         if name == 'factorial':
             res = args[0]
             return math.factorial(res)
-        if 'curmod' in globals() and curmod in mod_funcs and name in mod_funcs[curmod]:
-            arg_names, body = mod_funcs[curmod][name]
-            old_vars = vars.copy()
+        if 'curmod' in globals() and modul in mod_funcs and name in mod_funcs[modul]:
+            arg_names, body = mod_funcs[modul][name][1], mod_funcs[modul][name][2]
+            enter_scope()
             for i in range(min(len(arg_names), len(args))):
-                vars[arg_names[i]] = args[i]
+                update_variable(arg_names[i], args[i])
             result = eval_ast(body)
-            vars.clear()
-            vars.update(old_vars)
+            exit_scope()
             return result
-        if name in funcs:
-            arg_names, body = funcs[name]
-            old_vars = vars.copy()
-            for i in range(min(len(arg_names), len(args))):
-                vars[arg_names[i]] = args[i]
-            result = eval_ast(body)
-            vars.clear()
-            vars.update(old_vars)
-            return result
-        raise NameError(f"Function '{name}' is not defined")
+        func_def = None
+        for scope in reversed(scope_stack):
+            if name in scope and isinstance(scope[name], tuple) and scope[name][0] == 'func':
+                func_def = scope[name]
+                break
+        if func_def is None:
+            raise NameError(f"Function '{name}' not defined")
+        params, body = func_def[1], func_def[2]
+        enter_scope()
+        for i, param in enumerate(params):
+            update_variable(param, args[i])
+        result = eval_ast(body)
+        exit_scope()
+        return result[1] if isinstance(result, tuple) and result[0] == 'return' else result
     if node[0] == 'ownfunc':
+        name, params, body = node[1], node[2], node[3]
+        update_variable(name, ('func', params, body))
+        symbol_table[name] = 'function'
         return None
-    if isinstance(node, tuple) and len(node) == 2 and isinstance(node[1], str):
-        name, _ = node
-        if name in vars:
-            return vars[name]
-        raise NameError(f"Variable '{name}' is not defined")
+    if node[0] == 'lambda':
+    	params, body = node[1], node[2]
+    	return ('func', params, body)
     if node[0] == 'arrindx':
         name, _ = node[1]
-        indx = node[2]
-        if isinstance(indx, tuple):
-            indx = eval_ast(indx)
-            indx = int(indx)
-        else:
-            indx = int(indx)
-        if indx < 0 or indx >= len(vars[name]):
-            raise IndexError(f"Index '{indx}' is out of range")
-        if isinstance(vars[name], list):
-            return vars[name][indx]
-        elif isinstance(vars[name], str):
-            return vars[name][indx]
-        raise NameError(f"Variable '{name}' is not defined or it not list")
+        indx = eval_ast(node[2])
+        arr = find_variable(name)
+        if not isinstance(arr, (list, str, dict)):
+            raise TypeError(f"Variable '{name}' is not indexable")
+        if isinstance(arr, dict):
+        	if indx not in arr:
+        		raise KeyError(f'key {indx} not found in dict')
+        	return arr[indx]
+        if not isinstance(indx, (int, float)) or indx < 0 or indx >= len(arr):
+            raise IndexError(f"Index {indx} out of range")
+        return arr[int(indx)]
     if isinstance(node, tuple) and len(node) == 3:
         op, left, right = node
         left_val = eval_ast(left)
@@ -1078,15 +1165,21 @@ def eval_ast(node, localVarsCache=None):
 
 # === Test Run ===
 while True:
-    code = input("Enter your code: ")
-    lines = code.split('\n')
-    if code.startswith("run "):
-        filename = code[4:].strip()
-        with open(filename, "r", encoding='utf-8') as f:
-            code = f.read()
-            lines = code.split('\n')
-    result = parser.parse(code)
-    if result is None:
-        print("Parsing failed due to syntax error")
-    else:
-        eval_ast(result)
+    try:
+        code = input("Enter your code: ")
+        lines = code.split('\n')
+        if code.startswith("run "):
+            filename = code[4:].strip()
+            with open(filename, "r", encoding='utf-8') as f:
+                code = f.read()
+                lines = code.split('\n')
+        result = parser.parse(code)
+        if result is None:
+            print("Parsing failed due to syntax error")
+        else:
+            eval_ast(result)
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        break
+    except Exception as e:
+        print(f"Error: {e}")
