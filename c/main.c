@@ -51,38 +51,16 @@ static void runFile(const char* path) {
 }
 
 int main(int argc, const char* argv[])
-{   
+{
+    initVM();
     if (argc == 1) {
         repl();
     }
     else if (argc == 2) {
-        runFile(argv[1]); 
+        runFile(argv[1]);
     } else {
         fprintf(stderr, "Usage: n-run [path]\n");
     }
-    int blabla = 0;
-    initVM();
-    Chunk chunk;
-    initChunk(&chunk);
-    int constant = addConstant(&chunk, 1.2);
-    writeChunk(&chunk, OP_CONSTANT, 123);
-    writeChunk(&chunk, constant, 123);
-    constant = addConstant(&chunk, 3.4);
-    writeChunk(&chunk, OP_CONSTANT, 123);
-    writeChunk(&chunk, constant, 123);
-
-    writeChunk(&chunk, OP_ADD, 123);
-
-    constant = addConstant(&chunk, 5.6);
-    writeChunk(&chunk, OP_CONSTANT, 123);
-    writeChunk(&chunk, constant, 123);
-
-    writeChunk(&chunk, OP_DIVIDE, 123);
-    writeChunk(&chunk, OP_RETURN, 123);
-    disassembleChunk(&chunk, "test chunk");
-    interpret(&chunk);
     freeVM();
-    freeChunk(&chunk);
-    scanf("%d", &blabla);
     return 0;
 }

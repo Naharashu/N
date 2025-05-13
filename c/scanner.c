@@ -130,7 +130,7 @@ static TokenType identifierType()
             if (scanner.current - scanner.start > 1) {
                 switch (scanner.start[1]) {
                     case 'a':
-                        return checkKeyword(2, 1, "lse", TOKEN_FALSE);
+                        return checkKeyword(1, 4, "alse", TOKEN_FALSE);
                     case 'o':
                         return checkKeyword(2, 1, "r", TOKEN_FOR);
                     case 'u':
@@ -155,9 +155,10 @@ static TokenType identifierType()
                     case 'h':
                         return checkKeyword(2, 2, "is", TOKEN_THIS);
                     case 'r':
-                        return checkKeyword(2, 3, "ue", TOKEN_TRUE);
+                        return checkKeyword(1, 3, "rue", TOKEN_TRUE);
                 }
             }
+            break;
         case 'v':
             return checkKeyword(1, 2, "ar", TOKEN_VAR);
         case 'w':
@@ -168,7 +169,7 @@ static TokenType identifierType()
 
 static Token identifier()
 {
-    while (isAlpha(peek() || isDigit(peek())))
+    while (isAlpha(peek()) || isDigit(peek()))
         advance();
     return makeToken(identifierType());
 }
@@ -250,6 +251,8 @@ Token scanToken()
         return makeToken(TOKEN_SLASH);
     case '*':
         return makeToken(TOKEN_STAR);
+    case '^':
+        return makeToken(TOKEN_POW);
     case '!':
         return makeToken(
             match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
