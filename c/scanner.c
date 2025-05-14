@@ -189,10 +189,10 @@ static Token number()
 
 static Token string()
 {
-    while (peek() != '"' && !isAtEnd())
+    char quote = scanner.start[0]; 
+    while (peek() != quote && !isAtEnd())
     {
-        if (peek() == '\n')
-            scanner.line++;
+        if (peek() == '\n') scanner.line++;
         advance();
     }
     if (isAtEnd())
@@ -266,6 +266,8 @@ Token scanToken()
         return makeToken(
             match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
     case '"':
+        return string();
+    case '\'':
         return string();
     }
 
