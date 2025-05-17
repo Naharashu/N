@@ -15,12 +15,19 @@ static int simpleInstruction(const char* name, int offset) {
     return offset + 1;
 }
 
+static int bytesInstruction(const char* name, Chunk* chunk,
+                           int offset) {
+  uint16_t slot = chunk->code[offset + 1];
+  printf("%-16s %4d\n", name, slot);
+  return offset + 2; 
+}
+
 static int constantInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t constant = chunk->code[offset + 1];
+    uint16_t constant = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
     printf("%-16s %4d '", name, constant);
     printValue(chunk->constants.values[constant]);
     printf("'\n");
-    return offset + 2;
+    return offset + 3;
 }
 
 int disassembleInstruction(Chunk* chunk, int offset) {
@@ -52,6 +59,18 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return simpleInstruction("OP_TRUE", offset);
         case OP_FALSE:
             return simpleInstruction("OP_FALSE", offset);
+        case OP_POP:
+            return simpleInstruction("OP_POP", offset);
+        case OP_GET_GLOBAL:
+            return constantInstruction("OP_GET_GLOBAL", chunk, offset);
+        case OP_DEFINE_GLOBAL:
+            return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
+        case OP_SET_GLOBAL:
+            return constantInstruction("OP_SET_GLOBAL", chunk, offset);
+        case OP_SET_LOCAL:
+            return bytesInstruction("OP_SET_LOCAL", chunk, offset);
+        case OP_GET_LOCAL:
+            return bytesInstruction("OP_GET_LOCAL", chunk, offset);
         case OP_NOT:
             return simpleInstruction("OP_NOT", offset);
         case OP_EE:
@@ -66,6 +85,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return simpleInstruction("OP_GTE", offset);
         case OP_NEGATE:
             return simpleInstruction("OP_NEGATE", offset);
+        case OP_PRINT:
+            return simpleInstruction("OP_PRINT", offset);
         default:
             printf("Unknown opcode %d\n", instruction);
             return offset + 1;

@@ -8,8 +8,15 @@ typedef enum {
     OP_CONSTANT,
     OP_NEGATE,
     OP_NIL,
+    OP_NV,
     OP_TRUE,
     OP_FALSE,
+    OP_POP,
+    OP_GET_GLOBAL,
+    OP_DEFINE_GLOBAL,
+    OP_SET_GLOBAL,
+    OP_GET_LOCAL,
+    OP_SET_LOCAL,
     OP_NOT,
     OP_EE,
     OP_LESS,
@@ -22,6 +29,7 @@ typedef enum {
     OP_MULTIPLY,
     OP_DIVIDE,
     OP_POW,
+    OP_PRINT,
     OP_RETURN,
 } OpCode;
 

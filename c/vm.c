@@ -7,6 +7,7 @@
 #include <string.h>
 #include "memory.h"
 #include "object.h"
+#include <time.h>
 
 VM vm;
 
@@ -35,7 +36,10 @@ static void concatenate() {
 static interpretResult run()
 {
 #define READ_BYTE() (*vm.ip++)
-#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+#define READ_SHORT() \
+    (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
+#define READ_CONSTANT() (vm.chunk->constants.values[READ_SHORT()])
+#define READ_STRING() AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op)                        \
     do                                                  \
     {                                                   \
@@ -107,12 +111,52 @@ static interpretResult run()
         case OP_NIL:
             push(NIL_VAL);
             break;
+        case OP_NV: {
+            push(NIL_VAL);
+            break;
+        }
         case OP_TRUE:
             push(BOOL_VAL(true));
             break;
         case OP_FALSE:
             push(BOOL_VAL(false));
             break;
+        case OP_POP: pop(); break;
+        case OP_GET_GLOBAL: {
+            ObjString* name = READ_STRING();
+            Value value;
+            if (!tableGet(&vm.globals, name, &value)) {
+                runtimeError("Undefined variable '%s'.", name->chars);
+                return INTERPRETER_RUNTIME_ERROR;
+            }
+            push(value);
+            break;
+        }
+        case OP_DEFINE_GLOBAL: {
+            ObjString* name = READ_STRING();
+            tableSet(&vm.globals, name, peek(0));
+            pop();
+            break;
+        }
+        case OP_SET_GLOBAL: {
+            ObjString* name = READ_STRING();
+            if(tableSet(&vm.globals, name, peek(0))) {
+                tableDelete(&vm.globals, name);
+                runtimeError("Undefined variable '%s'.", name->chars);
+                return INTERPRETER_RUNTIME_ERROR;
+            }
+            break;
+        }
+        case OP_GET_LOCAL: {
+            uint16_t slot = READ_SHORT();
+            push(vm.stack[slot]);
+            break;
+        }
+        case OP_SET_LOCAL: {
+            uint16_t slot = READ_SHORT();
+            vm.stack[slot] = peek(0);
+            break;
+        }
         case OP_NOT:
         {
             push(BOOL_VAL(isFalsey(pop())));
@@ -147,16 +191,21 @@ static interpretResult run()
             push(NUMBER_VAL(-AS_NUMBER(pop())));
             break;
         }
-        case OP_RETURN:
-        {
+        case OP_PRINT: {
             printValue(pop());
             printf("\n");
+            break;
+        }
+        case OP_RETURN:
+        {
             return INTERPRETER_OK;
         }
         }
     }
 #undef READ_BYTE
+#undef READ_SHORT
 #undef READ_CONSTANT
+#undef READ_STRING
 #undef BINARY_OP
 }
 
@@ -182,11 +231,15 @@ void initVM()
 {
     resetStack();
     vm.objects = NULL;
+    initTable(&vm.globals);
+    initTable(&vm.strings);
 }
 
 void freeVM()
 {
     resetStack();
+    freeTable(&vm.globals);
+    freeTable(&vm.strings);
     freeObjects();
 }
 
@@ -206,6 +259,25 @@ static Value peek(int distance)
 {
     return vm.stackTop[-1 - distance];
 }
+
+static Entry* findEntry(Entry* entries, int capacity, ObjString* key) {
+    uint32_t index = key->hash % capacity;
+    Entry* tombstone = NULL;
+    for(;;) {
+        Entry* entry = &entries[index];
+        if (entry->key == NULL) {
+            if (IS_NIL(entry->value)) {
+                return tombstone != NULL ? tombstone : entry;
+            } else {
+                if (tombstone != NULL) tombstone = entry;
+            }
+        } else if (entry->key == key) {
+            return entry;
+        }
+        index = (index + 1) % capacity;
+    }
+}
+
 interpretResult interpret(const char *source)
 {
     Chunk chunk;

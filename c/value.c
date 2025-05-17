@@ -37,7 +37,7 @@ void printValue(Value value)
         printf(AS_BOOL(value) ? "true" : "false");
         break;
     case VAL_NIL:
-        printf("nil");
+        printf("null");
         break;
     case VAL_NUMBER:
         printf("%g", AS_NUMBER(value));
@@ -46,6 +46,7 @@ void printValue(Value value)
         printObject(value);
     }
 }
+
 
 bool valuesEE(Value a, Value b)
 {
@@ -61,11 +62,7 @@ bool valuesEE(Value a, Value b)
         return AS_NUMBER(a) == AS_NUMBER(b);
     case VAL_OBJ:
     {
-        ObjString *aString = AS_STRING(a);
-        ObjString *bString = AS_STRING(b);
-        return aString->length == bString->length &&
-               memcmp(aString->chars, bString->chars,
-                      aString->length) == 0;
+        return AS_OBJ(a) == AS_OBJ(b);
     }
     default:
         return false;

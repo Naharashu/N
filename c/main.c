@@ -5,7 +5,7 @@
 
 
 static void repl() {
-    char line[1024];
+    char line[2048];
     for(;;) {
         printf("> ");
         if(!fgets(line, sizeof(line), stdin)) {
