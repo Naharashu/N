@@ -14,6 +14,7 @@ typedef enum {
     OP_POP,
     OP_GET_GLOBAL,
     OP_DEFINE_GLOBAL,
+    OP_DEFINE_GLOBAL_CONST, 
     OP_SET_GLOBAL,
     OP_GET_LOCAL,
     OP_SET_LOCAL,
@@ -30,6 +31,10 @@ typedef enum {
     OP_DIVIDE,
     OP_POW,
     OP_PRINT,
+    OP_INPUT,
+    OP_JUMP_IF_FALSE,
+    OP_JUMP,
+    OP_LOOP,
     OP_RETURN,
 } OpCode;
 
@@ -42,12 +47,8 @@ typedef struct {
 } Chunk;
 
 void initChunk(Chunk * chunk);
-
 void writeChunk(Chunk * chunk, uint8_t byte, int line);
-
 int addConstant(Chunk * chunk, Value value);
-
 void freeChunk(Chunk *chunk);
-
 
 #endif

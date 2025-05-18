@@ -134,15 +134,20 @@ static interpretResult run()
         }
         case OP_DEFINE_GLOBAL: {
             ObjString* name = READ_STRING();
-            tableSet(&vm.globals, name, peek(0));
+            tableSet(&vm.globals, name, peek(0), false);
+            pop();
+            break;
+        }
+        case OP_DEFINE_GLOBAL_CONST: {
+            ObjString* name = READ_STRING();
+            tableSet(&vm.globals, name, peek(0), true);
             pop();
             break;
         }
         case OP_SET_GLOBAL: {
             ObjString* name = READ_STRING();
-            if(tableSet(&vm.globals, name, peek(0))) {
-                tableDelete(&vm.globals, name);
-                runtimeError("Undefined variable '%s'.", name->chars);
+            if (!tableUpdate(&vm.globals, name, peek(0))) {
+                runtimeError("Can't assign to constant variable '%s'.", name->chars);
                 return INTERPRETER_RUNTIME_ERROR;
             }
             break;
@@ -194,6 +199,30 @@ static interpretResult run()
         case OP_PRINT: {
             printValue(pop());
             printf("\n");
+            break;
+        }
+        case OP_INPUT: {
+            char buffer[1024];
+            fgets(buffer, 1024, stdin);
+            if (buffer[strlen(buffer) - 1] == '\n') {
+                buffer[strlen(buffer) - 1] = '\0';
+            }
+            push(OBJ_VAL(takeString(buffer, strlen(buffer))));
+            break;
+        }
+        case OP_JUMP_IF_FALSE: {
+            uint16_t offset = READ_SHORT();
+            if(isFalsey(peek(0))) vm.ip += offset;
+            break;  
+        }
+        case OP_JUMP: {
+            uint16_t offset = READ_SHORT();
+            vm.ip += offset;
+            break;
+        }
+        case OP_LOOP: {
+            uint16_t offset = READ_SHORT();
+            vm.ip -= offset;
             break;
         }
         case OP_RETURN:
