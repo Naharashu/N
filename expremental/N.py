@@ -112,32 +112,63 @@ def cotan_deg(x):
 
 # === Lark Grammar ===
 grammar = r"""
-    ?program: statements
 
-    ?statements: statement*
+    %import common.WS
     
-    ?statement: expression (SEMI)?
+    // Спеціальні символи
+    QUESTION: "?"
+    COLON: ":"
+    DOT: "."
+    COMMA: ","
+    SEMI: ";"
+    LPAREN: "("
+    RPAREN: ")"
+    LBRACE: "{"
+    RBRACE: "}"
+    LBRACK: "["
+    RBRACK: "]"
+    
+    // Оператори
+    OP: "+=" | "-=" | "*=" | "/=" | "^=" | ">>" | "<<"
+    LOGIC: "==" | "!==" | "<" | ">" | ">=" | "<=" | "is" | "partof"
+    AND: "&&"
+    OR: "||"
+    
+    // Літерали
+    NUMBER: /\d*\.?\d+/
+    STRING: /"[^"]*"|'[^']*'/
+    BOOL: "true" | "false"
+    ID: /[a-zA-Z_][a-zA-Z_0-9]*/
+    
+    // Коментарі та пробіли
+    COMMENT: /\/\/[^\n]*/
+    %ignore COMMENT
+    %ignore WS
 
-    ?block: "{" statements "}"
+    program: statements
 
-    ?array: "[" elements? "]"
+    statements: statement*
+    
+    statement: expression (SEMI)?
 
-    ?elements: element ("," element)*
+    block: "{" statements "}"
 
-    ?element: NUMBER
+    array: "[" elements? "]"
+
+    elements: element ("," element)*
+
+    element: NUMBER
             | STRING
             | BOOL
             | expression
 
-    ?dict: "{" dict_pairs? "}"
+    dict: "{" dict_pairs? "}"
 
-    ?dict_pairs: dict_pair ("," dict_pair)*
+    dict_pairs: dict_pair ("," dict_pair)*
 
-    ?dict_pair: STRING ":" element
+    dict_pair: STRING ":" element
 
-    ?BOOL: "true" | "false"
-
-    ?expression: define
+    expression: define
                | return_stmt
                | lambda
                | import_stmt
@@ -162,67 +193,67 @@ grammar = r"""
                | mod_func
                | term
 
-    ?define: "define" ID "(" params? ")" block
+    define: "define" ID "(" params? ")" block
 
-    ?return_stmt: "return" expression
+    return_stmt: "return" expression
 
-    ?lambda: "lambda" "(" params? ")" block
+    lambda: "lambda" "(" params? ")" block
 
-    ?import_stmt: "import" STRING
+    import_stmt: "import" STRING
 
-    ?if_exp: "if" cond block ("otherwise" block | "else" block)?
+    if_exp: "if" cond block ("otherwise" block | "else" block)?
 
-    ?ternary: cond "?" expression ":" expression
+    ternary: cond QUESTION expression COLON expression
 
-    ?try_catch: "try" block "catch" "(" ID ")" block
+    try_catch: "try" block "catch" "(" ID ")" block
 
-    ?while_loop: "while" cond block
+    while_loop: "while" cond block
 
-    ?always_do: "always" "do" block
+    always_do: "always" "do" block
 
-    ?raise_stmt: "raise" expression
+    raise_stmt: "raise" expression
 
-    ?continue_stmt: "continue"
+    continue_stmt: "continue"
 
-    ?break_stmt: "break"
+    break_stmt: "break"
 
-    ?pass_stmt: "pass"
+    pass_stmt: "pass"
 
-    ?for_loop: "for" "(" ID "," expression "," expression ")" block
+    for_loop: "for" "(" ID "," expression "," expression ")" block
 
-    ?foreach_loop: "foreach" "(" ID "partof" expression ")" block
+    foreach_loop: "foreach" "(" ID "partof" expression ")" block
 
-    ?assign: ("var" | "const") ID "=" expression
+    assign: ("var" | "const") ID "=" expression
 
-    ?plain_assign: ID "=" expression
+    plain_assign: ID "=" expression
 
-    ?new_assign: ID OP expression
+    new_assign: ID OP expression
 
-    ?arr_index: ID "[" expression "]"
+    arr_index: ID "[" expression "]"
 
-    ?logic_expr: expression ("&&" | "||") expression
+    logic_expr: expression ("&&" | "||") expression
 
-    ?cond: "(" cond ("&&" | "||") cond ")"
+    cond: "(" cond ("&&" | "||") cond ")"
          | expression LOGIC expression
          | expression
 
-    ?call: ID "(" arguments? ")"
+    call: ID "(" arguments? ")"
          | "(" expression ")" "(" arguments? ")" -> lambda_call
 
-    ?mod_var: ID "." ID
+    mod_var: ID "." ID
 
-    ?mod_func: ID "." ID "(" arguments? ")"
+    mod_func: ID "." ID "(" arguments? ")"
 
-    ?arguments: expression ("," expression)*
+    arguments: expression ("," expression)*
 
-    ?params: param ("," param)*
+    params: param ("," param)*
 
-    ?param: ID
+    param: ID
 
-    ?term: factor
+    term: factor
          | term ("*" | "/" | "^" | "%") factor -> binop
 
-    ?factor: "-" factor -> neg
+    factor: "-" factor -> neg
            | "+" factor -> pos
            | "(" expression ")"
            | NUMBER
@@ -233,16 +264,7 @@ grammar = r"""
            | dict
            | "null" -> null
 
-    ?LOGIC: "==" | "!==" | "<" | ">" | ">=" | "<=" | "is" | "partof"
 
-    OP: "+=" | "-=" | "*=" | "/=" | "^=" | ">>" | "<<"
-
-    NUMBER: /\d*\.?\d+/
-    STRING: /"[^"]*"|'[^']*'/
-    ID: /[a-zA-Z_][a-zA-Z_0-9]*/
-    COMMENT: /\/\/[^\n]*/
-    %ignore COMMENT
-    %ignore /[ \t\n]+/
 """
 
 # === Lark Parser ===
