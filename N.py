@@ -264,6 +264,10 @@ def t_WHILE(t):
     r'while'
     return t
 
+def t_NULL(t):
+    r'null|NULL|None|none|Null'
+    return t
+
 def t_ID(t):
     r'[a-zA-Z_][a-zA-Z_0-9]*'
     t.value = (t.value, symbol_lookup(t.value))
@@ -282,6 +286,7 @@ def t_STRING(t):
 def t_COMMENT(t):
     r'\/\/[^\n]*'
     pass
+
 
 def t_newline(t):
     r'\n+'
@@ -415,7 +420,7 @@ def p_factor_array(p):
 
 def p_factor_null(p):
     'factor : NULL'
-    p[0] = ('null',)
+    p[0] = ('null', None)
 
 def p_expression_def(p):
     'expression : DEFINE ID LPAREN params RPAREN block'
@@ -541,7 +546,7 @@ def p_factor_function(p):
     if typ == 'function' or name in funcs:
         p[0] = ('call', name, args)
     else:
-        p[0] = ('call', name, args)  # Буде перевірено в інтерпретаторі
+        p[0] = ('call', name, args)  
 
 def p_arguments_multiple(p):
     'arguments : arguments COMMA expression'
@@ -714,7 +719,7 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'neg':
         return -eval_ast(node[1])
     if node[0] == 'null':
-        return None
+        return node[1]
     if node[0] == 'import':
         modul = node[1]
         mod_vars[modul] = {}
@@ -974,8 +979,8 @@ def eval_ast(node, localVarsCache=None):
                     return result[1]
                 return result
         args = [eval_ast(a, localVarsCache) for a in ar]
-        if name == 'output':
-            print(*[str(arg) if isinstance(arg, list) else arg for arg in args])
+        if name == 'println':
+            sys.stdout.write(''.join(str(arg) if isinstance(arg, list) else str(arg) for arg in args) + '\n')
             return None
         if name == 'input':
             prompt = args[0] if len(args) != 0 else None
@@ -1173,7 +1178,7 @@ def eval_ast(node, localVarsCache=None):
 # === Test Run ===
 while True:
     try:
-        code = input("Enter your code: ")
+        code = input("N: ")
         lines = code.split('\n')
         if code.startswith("run "):
             filename = code[4:].strip()
