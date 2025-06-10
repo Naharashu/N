@@ -42,6 +42,12 @@ for(i,0,3) {
     println(i) // 0, 1, 2, 3
 }
 
+// for but?
+
+for(i,3,0) {
+   println(i) // 3,2,1,0
+}
+
 always do {
     print("infinity loop")
 }
