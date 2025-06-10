@@ -4,6 +4,8 @@ import math
 import random
 import sys
 import hashlib
+import time
+import base64
 
 # === Symbol Table ===
 symbol_table = {
@@ -29,7 +31,7 @@ symbol_table = {
     'max': 'function',
     'random': 'function',
     'randint': 'function',
-    'output': 'function',
+    'println': 'function',
     'input': 'function',
     'len': 'function',
     'toUpper': 'function',
@@ -52,7 +54,9 @@ symbol_table = {
     'charCodeAt': 'function',
     'charCodeFrom': 'function',
     'substring': 'function',
-    'partof': 'keyword'
+    'partof': 'keyword',
+    'btoa': 'function',
+    'atob': 'function',
 }
 
 # === Scope Management ===
@@ -63,6 +67,9 @@ mod_vars = {}
 mod_funcs = {}  
 vars_stack = [] 
 funcs = {}  
+
+class Error(Exception):
+    pass
 
 def enter_scope():
     scope_stack.append({})
@@ -117,10 +124,10 @@ def symbol_lookup(identifier):
 # === Lexer ===
 tokens = (
     'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'CONST', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
-    'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'DOT',
+    'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'SHIFT', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD', 'DEFINE', 'LAMBDA'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD', 'DEFINE', 'UNDEF', 'LAMBDA'
 )
 
 t_PLUS = r'\+'
@@ -149,11 +156,19 @@ t_LTE = r'<='
 t_COMMA = r','
 
 def t_op(t):
-    r'\+\=|-\=|\*\=|\/\=|\^\=|\>\>|\<\<'
+    r'\+\=|-\=|\*\=|\/\=|\^\='
+    return t
+
+def t_SHIFT(t):
+    r'\>\>|\<\<'
     return t
 
 def t_DEFINE(t):
     r'define'
+    return t
+
+def t_UNDEF(t):
+    r'undefine|undef'
     return t
 
 def t_CONTINUE(t):
@@ -287,6 +302,9 @@ def t_COMMENT(t):
     r'\/\/[^\n]*'
     pass
 
+def t_COMMENT_LONG(t):
+    r'/\*([^*]|\*+[^*/])*\*/'
+    pass
 
 def t_newline(t):
     r'\n+'
@@ -312,6 +330,7 @@ precedence = (
     ('left', 'PLUS', 'MINUS'),
     ('left', 'MULTIPLE', 'DIVIDE', 'MOD'),
     ('right', 'POW'),
+    ('left', 'SHIFT'),
     ('right', 'UMINUS', 'UPLUS'),
     ('nonassoc', 'EQ', 'op'),
     ('nonassoc', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'LBRACK', 'RBRACK'),
@@ -321,6 +340,10 @@ precedence = (
 def p_program(p):
     'program : statements'
     p[0] = ('program', p[1])
+
+def p_program_empty(p):
+    'program : '
+    p[0] = ('program', [])
 
 def p_statements_multiple(p):
     'statements : statements expression'
@@ -378,7 +401,8 @@ def p_term_binop(p):
     '''term : term MULTIPLE factor
             | term DIVIDE factor
             | term POW factor
-            | term MOD factor'''
+            | term MOD factor
+            | term SHIFT factor'''
     p[0] = (p[2], p[1], p[3])
 
 def p_expression_term(p):
@@ -430,6 +454,11 @@ def p_expression_def(p):
     funcs[name] = ('define', params, body)
     symbol_table[name] = 'define'
     p[0] = ('define', name, params, body)
+    
+def p_expression_undef(p):
+    'expression : UNDEF ID'
+    name, _ = p[2]
+    p[0] = ('undefine', name,)
 
 def p_expression_return(p):
     'expression : RETURN retval'
@@ -658,11 +687,13 @@ def p_array_index(p):
 def p_error(p):
     if p:
         print(f"Syntax error at token '{p.value}' (type: {p.type}) on line {p.lineno}")
+        print("Current token:", p)
+        print("Current stack:", parser.symstack)
         while p and p.type not in ('\n', 'RBRACKET', 'SEMI'):
             lexer.skip(1)
             p = lexer.token()
     else:
-        print("Syntax error at EOF")
+        print("Syntax error at EOF or problems with lexer")
 
 parser = yacc.yacc()
 
@@ -696,6 +727,10 @@ def eval_ast(node, localVarsCache=None):
         var_name = node[1][0] if isinstance(node[1], tuple) else node[1]
         if var_name in localVarsCache:
             return localVarsCache[var_name]
+        if var_name in funcs:
+            return 'function'
+        if var_name in symbol_table and symbol_table[var_name] == 'function':
+            return 'function'
         return find_variable(var_name)
     if node[0] == 'name':
         return node[1]
@@ -714,6 +749,14 @@ def eval_ast(node, localVarsCache=None):
         name, params, body = node[1], node[2], node[3]
         funcs[name] = ('define', params, body)
         return None
+    if node[0] == 'undefine':
+        name = node[1]
+        if name in funcs:
+            del funcs[name]
+        else:
+            raise RuntimeError("Macros is not defined")
+        return None
+        
     if node[0] == 'error':
         raise NameError(f"'{node[1]}' is not a function")
     if node[0] == 'neg':
@@ -750,6 +793,23 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'modfunc':
         modul, func, args = node[1], node[2], node[3]
         args = [eval_ast(arg) for arg in args]
+        if modul == 'clock':
+            if func == 'now':
+                return time.time_ns()
+            if func == 'time':
+                return time.time()
+            if func == 'sleep':
+                time.sleep(args[0])
+                return None
+            if func == 'date':
+                return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+            if func == 'day':
+                return time.strftime('%A', time.localtime())
+            if func == 'month':
+                return time.strftime('%B', time.localtime())
+            if func == 'year':
+                return time.strftime('%Y', time.localtime())
+        # --- Далі як було
         if modul in mod_funcs and func in mod_funcs[modul]:
             arg_names, body = mod_funcs[modul][func][1], mod_funcs[modul][func][2]
             enter_scope()
@@ -775,7 +835,7 @@ def eval_ast(node, localVarsCache=None):
         exit_scope()
         return result
     if node[0] == 'return':
-        return ('return', eval_ast(node[1], localVarsCache))
+        return eval_ast(node[1], localVarsCache)
     if node[0] == 'continue':
         return ('continue',)
     if node[0] == 'break':
@@ -815,7 +875,7 @@ def eval_ast(node, localVarsCache=None):
             return result
     if node[0] == 'raise':
         value = eval_ast(node[1])
-        raise Exception(value)
+        raise Error(value)
     if node[0] == 'ifExp':
         cond = node[1]
         body1 = node[2]
@@ -1021,6 +1081,12 @@ def eval_ast(node, localVarsCache=None):
             return float(args[0])
         if name == 'toStr':
             return str(args[0])
+        if name == 'btoa':
+            data = args[0]
+            return base64.b64encode(data.encode()).decode()
+        if name == 'atob':
+            data = args[0]
+            return base64.b64decode(data).decode()
         if name == 'md5':
             return hashlib.md5(args[0].encode()).hexdigest()
         if name == 'sha1':
@@ -1047,21 +1113,27 @@ def eval_ast(node, localVarsCache=None):
         if name == 'exit':
             exit()
         if name == 'typeof':
-            if isinstance(args[0], str):
-                return 'string'
-            if isinstance(args[0], int):
-                return 'int'
-            if isinstance(args[0], float):
-                return 'float'
-            if isinstance(args[0], list):
-                return 'array'
-            if args[0] is None:
-                return 'null'
-            if isinstance(args[0], bool):
-                return 'bool'
-            if args[0] == 'function':
+            try:
+                val = args[0]
+            except Exception:
+                return 'undefined'
+            if isinstance(val, tuple) and len(val) == 2 and val[1] == 'function':
                 return 'function'
-            raise ValueError(f"Unknown type of {args[0]}")
+            if val == 'function':
+                return 'function'
+            if isinstance(val, str):
+                return 'string'
+            if isinstance(val, int):
+                return 'int'
+            if isinstance(val, float):
+                return 'float'
+            if isinstance(val, list):
+                return 'array'
+            if val is None:
+                return 'null'
+            if isinstance(val, bool):
+                return 'bool'
+            return 'undefined'
         if name == 'floor':
             return math.floor(args[0])
         if name == 'ceil':
@@ -1173,6 +1245,8 @@ def eval_ast(node, localVarsCache=None):
         if op == '/': return left_val / right_val
         if op == '^': return left_val ** right_val
         if op == '%': return left_val % right_val
+        if op == '<<': return left_val << right_val
+        if op == '>>': return left_val >> right_val
     raise ValueError(f"Unknown node: {node}")
 
 # === Test Run ===
