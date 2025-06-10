@@ -1,4 +1,4 @@
-# N
+f99# N
 Powerful language for everything
 
 # Examples
@@ -52,5 +52,34 @@ always do {
     print("infinity loop")
 }
 ```
+
+```js
+var x = input("Write num: ")
+if x < 10000 { println("small number") }
+else { println("big number") }
+
+// ternary 
+var y = input("Write num from 0 to 10: ")
+y < 10 ? println("Correct number") : println("Wrong number")
+```
+
+```js
+// some built-in function 
+
+// main
+println(args) // write text on display, println("My name is ", name)
+
+input(placeholder) 
+
+factorial(num) // factorial of num
+
+random() // random num from 0 to 1
+
+// cryptography 
+
+md5(text) // md5 hash
+sha256(text) // sha256 hash
+```
+
 
 Dependencies: ply, python3 or other code runner(recommend pypy)
