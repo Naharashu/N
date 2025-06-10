@@ -27,7 +27,9 @@ println(a(3,4)) // 7
 ```js
 // loops
 
-/* in N we have basic while and for loops and for infinity(always true) loop -> always do 
+/* in N we have basic while and for 
+loops and for infinity(always true) 
+loop -> always do 
 */
 
 var a = 0
