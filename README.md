@@ -55,7 +55,7 @@ always do {
 
 ```js
 var x = input("Write num: ")
-if x < 10000 { println("small number") }
+if (x < 10000) { println("small number") }
 else { println("big number") }
 
 // ternary 
@@ -73,12 +73,26 @@ input(placeholder)
 
 factorial(num) // factorial of num
 
-random() // random num from 0 to 1
+random(seed?) // random num 
 
 // cryptography 
 
 md5(text) // md5 hash
 sha256(text) // sha256 hash
+
+// base64
+
+btoa(text)
+atob(encoded_text)
+
+// work with file
+
+fread(filename) // read file(without print it)
+fwrite(filename, text) // write text in filename 
+
+// other
+
+system(command) // execute terminal command
 ```
 
 
