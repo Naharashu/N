@@ -94,8 +94,7 @@ fwrite(filename, text) // write text in filename
 
 // other
 
-system(command) // execute 
-terminal command
+system(command) // execute terminal command
 ```
 
 
