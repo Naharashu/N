@@ -87,12 +87,14 @@ atob(encoded_text)
 
 // work with file
 
-fread(filename) // read file(without print it)
+fread(filename) // read 
+file(without print it)
 fwrite(filename, text) // write text in filename 
 
 // other
 
-system(command) // execute terminal command
+system(command) // execute 
+terminal command
 ```
 
 
