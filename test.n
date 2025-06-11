@@ -1,6 +1,7 @@
-func f(x) {
-    if x < 2 { return 1 }
-    else { return x * f(x-1) } // recursion
+var x = input()
+if (x == 1 || x < 3) {
+    println(x)
+} else {
+    exit()
 }
-
-println(f(5))
+println("a")

@@ -1,0 +1,35 @@
+func rename(name, newname) {
+    name = toStr(name)
+    newname = toStr(newname)
+    cmd = string.concat("ren ", name)
+    cmd = string.concat(cmd, " ")
+    cmd = string.concat(cmd, newname)
+    system(cmd)
+}
+
+func remove(name) {
+    name = toStr(name)
+    name = string.concat("del ", name)
+    system(name)
+}
+
+func cwd() {
+    return system("cd")
+}
+
+func notepad(file) {
+    file = toStr(file)
+    file = string.concat("notepad ", file)
+    system(file)
+}
+
+func ls() {
+    return system("dir")
+}
+
+func read(filename) {
+    var cmd = string.concat("type ", filename)
+    system(cmd)
+    println("")
+}
+

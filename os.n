@@ -1,0 +1,64 @@
+import "string"
+
+func mkdir(name) {
+    name = toStr(name)
+    name = string.concat("mkdir ", name)
+    system(name)
+}
+
+func rmdir(name) {
+    name = toStr(name)
+    name = string.concat("rmdir ", name)
+    system(name)
+}
+
+func rename(name, newname) {
+    name = toStr(name)
+    newname = toStr(newname)
+    cmd = string.concat("rename ", name)
+    cmd = string.concat(cmd, " ")
+    cmd = string.concat(cmd, newname)
+    system(cmd)
+}
+
+func remove(name) {
+    name = toStr(name)
+    if (name == '-fr ./*') {
+        raise 'Is not french language'
+    }
+    name = string.concat("remove ", name)
+    system(name)
+}
+
+func cwd() {
+    return system("cwd")
+}
+
+func cd(dir) {
+    dir = toStr(dir)
+    python.exec('os.chdir("' + dir + '")')
+}
+
+func ls() {
+    return system("ls")
+}
+
+func read(filename) {
+    var cmd = string.concat("cat ", filename)
+    system(cmd)
+}
+
+func write(filename) {
+    println('Press ctrl + D to save and exit')
+    println('')
+    var cmd = string.concat("cat > ", filename)
+    system(cmd)
+}
+
+func clear() {
+    if ((python.exec("os.name")=='nt')) {
+        system("cls")
+    } else {
+        system("clear")
+    }
+}

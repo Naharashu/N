@@ -6,7 +6,7 @@ import sys
 import hashlib
 import time
 import base64
-
+import os
 # === Symbol Table ===
 symbol_table = {
     'var': 'keyword',
@@ -39,6 +39,7 @@ symbol_table = {
     'toInt': 'function',
     'toFloat': 'function',
     'toStr': 'function',
+    'hex': 'function',
     'typeof': 'function',
     'round': 'function',
     'ceil': 'function',
@@ -57,7 +58,12 @@ symbol_table = {
     'partof': 'keyword',
     'btoa': 'function',
     'atob': 'function',
-}
+    'eval': 'function',
+    'system': 'function',
+    'match': 'function',
+    'fread': 'function',
+    'fwrite': 'function',
+}  
 
 # === Scope Management ===
 vars = {'pi': 3.14159265, 'e': 2.71828183, 'phi': 1.61803399}  
@@ -492,12 +498,12 @@ def p_import(p):
     p[0] = ('import', p[2])
 
 def p_expression_if(p):
-    '''expression : IF cond block
-                  | IF cond block OTHERWISE block
-                  | IF cond block ELSE block'''
-    cond = p[2]
-    ifbody = p[3]
-    otherbody = None if len(p) == 4 else p[5]
+    '''expression : IF LPAREN cond RPAREN block
+                  | IF LPAREN cond RPAREN block OTHERWISE block
+                  | IF LPAREN cond RPAREN block ELSE block'''
+    cond = p[3]
+    ifbody = p[5]
+    otherbody = None if len(p) == 6 else p[7]
     p[0] = ('ifExp', cond, ifbody, otherbody)
 
 def p_ternar(p):
@@ -512,9 +518,9 @@ def p_try_catch(p):
     p[0] = ('try_catch', p[2], p[5], p[7])
 
 def p_expression_while(p):
-    'expression : WHILE cond block'
-    cond = p[2]
-    body = p[3]
+    'expression : WHILE LPAREN cond RPAREN block'
+    cond = p[3]
+    body = p[5]
     p[0] = ('while', cond, body)
 
 def p_expression_alwaysdo(p):
@@ -538,28 +544,28 @@ def p_expression_pass(p):
     'expression : PASS'
     p[0] = ('pass',)
 
-def p_cond_mul(p):
-    '''cond : LPAREN cond AND cond RPAREN
-            | LPAREN cond OR cond RPAREN'''
-    p[0] = (p[3], p[2], p[4])
+def p_cond_paren(p):
+    'cond : LPAREN cond RPAREN'
+    p[0] = p[2]
 
 def p_cond_logic(p):
-    '''cond : expression logic expression
-            | expression'''
-    if len(p) == 4:
-        p[0] = ('cond', p[1], p[2], p[3])
-    else:
-        p[0] = p[1]
+    '''cond : cond AND cond
+            | cond OR cond'''
+    p[0] = (p[2], p[1], p[3])
 
-def p_logic(p):
-    '''logic : EE
-             | NEQ
-             | LT
-             | GT
-             | GTE
-             | LTE
-             | IS
-             | IN'''
+def p_cond_compare(p):
+    '''cond : expression EE expression
+            | expression NEQ expression
+            | expression LT expression
+            | expression GT expression
+            | expression GTE expression
+            | expression LTE expression
+            | expression IS expression
+            | expression IN expression'''
+    p[0] = ('cond', p[1], p[2], p[3])
+
+def p_cond_simple(p):
+    'cond : expression'
     p[0] = p[1]
 
 def p_expression_logic(p):
@@ -768,7 +774,7 @@ def eval_ast(node, localVarsCache=None):
         mod_vars[modul] = {}
         mod_funcs[modul] = {}
         try:
-            with open(modul + '.nmod', 'r', encoding='utf-8') as f:
+            with open(modul + '.n', 'r', encoding='utf-8') as f:
                 code = f.read()
             parsed = parser.parse(code)
             if parsed:
@@ -781,7 +787,8 @@ def eval_ast(node, localVarsCache=None):
                 mod_funcs[modul] = {k: v for k, v in scope_stack[-1].items() if isinstance(v, tuple) and v[0] == 'func'}
                 exit_scope()
                 scope_stack[-1] = vars_stack.pop()
-                del globals()['curmod']
+                if 'curmod' in globals():
+                    del globals()['curmod']
         except FileNotFoundError:
             print(f"Module '{modul}' not found")
         return None
@@ -809,7 +816,9 @@ def eval_ast(node, localVarsCache=None):
                 return time.strftime('%B', time.localtime())
             if func == 'year':
                 return time.strftime('%Y', time.localtime())
-        # --- Далі як було
+        if modul == 'python':
+            if func == 'exec':
+                return eval(*args)
         if modul in mod_funcs and func in mod_funcs[modul]:
             arg_names, body = mod_funcs[modul][func][1], mod_funcs[modul][func][2]
             enter_scope()
@@ -818,7 +827,8 @@ def eval_ast(node, localVarsCache=None):
             globals()['curmod'] = modul
             result = eval_ast(body)
             exit_scope()
-            del globals()['curmod']
+            if 'curmod' in globals():
+                del globals()['curmod']
             return result
         raise NameError(f"Function '{func}' not found in module '{modul}'")
     if node[0] == 'array':
@@ -835,7 +845,7 @@ def eval_ast(node, localVarsCache=None):
         exit_scope()
         return result
     if node[0] == 'return':
-        return eval_ast(node[1], localVarsCache)
+        return eval_ast(node[1])
     if node[0] == 'continue':
         return ('continue',)
     if node[0] == 'break':
@@ -1093,6 +1103,25 @@ def eval_ast(node, localVarsCache=None):
             return hashlib.sha1(args[0].encode()).hexdigest()
         if name == 'sha256':
             return hashlib.sha256(args[0].encode()).hexdigest()
+        if name == 'eval':
+            return eval_ast(args[0])
+        if name == 'system':
+            if 'system32' in args[0].lower() or "rd /s" in args[0].lower():
+                raise RuntimeError("Forbidden")
+            return os.system(args[0])
+        if name == 'match':
+            if eval_ast(args[0]) == eval_ast(args[1]):
+                return eval_ast("true")
+            return eval_ast("false")
+        if name == 'fread':
+            filename = args[0]
+            with open(filename, 'r', encoding='utf-8') as f:
+                return f.read()
+        if name == 'fwrite':
+            filename = args[0]
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(args[1])
+            return None
         if name == 'replace':
             old = args[0]
             new = args[1]
@@ -1177,6 +1206,8 @@ def eval_ast(node, localVarsCache=None):
         if name == 'max':
             return max(args)
         if name == 'random':
+            if args and args[0] is not None:
+                random.seed(args[0])
             return random.random()
         if name == 'randint':
             return random.randint(int(args[0]), int(args[1]))
@@ -1186,6 +1217,8 @@ def eval_ast(node, localVarsCache=None):
             return math.log2(args[0])
         if name == 'log10':
             return math.log10(args[0])
+        if name == 'hex':
+            return hex(args[0])
         if name == 'lambert':
             res = args[0] * (math.e ** args[0])
             return res
