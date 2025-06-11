@@ -1,4 +1,4 @@
-f99# N
+# N
 Powerful language for everything
 
 # Examples
