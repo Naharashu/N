@@ -67,7 +67,8 @@ y < 10 ? println("Correct number") : println("Wrong number")
 // some built-in function 
 
 // main
-println(args) // write text on display, println("My name is ", name)
+println(args) // write text on display,
+println("My name is ", name)
 
 input(placeholder) 
 
