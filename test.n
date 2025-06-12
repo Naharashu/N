@@ -1,7 +1,5 @@
-var x = input()
-if (x == 1 || x < 3) {
-    println(x)
-} else {
-    exit()
-}
-println("a")
+var x = http.listen("localhost", 8000)
+println("Start server")
+clock.sleep(20)
+println("Shutdown")
+http.shutdown(x)

@@ -1,3 +1,4 @@
+import ply
 import ply.lex as lex
 import ply.yacc as yacc
 import math
@@ -7,13 +8,18 @@ import hashlib
 import time
 import base64
 import os
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from urllib import parse, request
+import json
+import asyncio
+
+version = "1.2.0-beta"
 # === Symbol Table ===
 symbol_table = {
     'var': 'keyword',
     'const': 'keyword',
     'define': 'keyword',
     'exit': 'function',
-    'split': 'function',
     'sqrt': 'function',
     'cbrt': 'function',
     'lambert': 'function',
@@ -48,6 +54,8 @@ symbol_table = {
     'append': 'function',
     'pop': 'function',
     'sort': 'function',
+    'join': 'function',
+    'split': 'function',
     'reverse': 'function',
     'md5': 'function',
     'sha256': 'function',
@@ -129,7 +137,7 @@ def symbol_lookup(identifier):
 
 # === Lexer ===
 tokens = (
-    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'CONST', 'FOR', 'FUNC', 'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
+    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'CONST', 'FOR', 'FUNC', 'ASYNC', 'AWAIT' ,'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'SHIFT', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
@@ -257,6 +265,14 @@ def t_FUNC(t):
     r'func'
     return t
 
+def t_ASYNC(t):
+    r'async'
+    return t
+
+def t_AWAIT(t):
+    r'await'
+    return t
+
 def t_IF(t):
     r'if'
     return t
@@ -350,6 +366,10 @@ def p_program(p):
 def p_program_empty(p):
     'program : '
     p[0] = ('program', [])
+    
+def p_a_expr(p):
+    'expression : AWAIT expression'
+    p[0] = ('await', p[2])
 
 def p_statements_multiple(p):
     'statements : statements expression'
@@ -362,6 +382,7 @@ def p_statements_single(p):
 def p_block(p):
     'block : LBRACKET statements RBRACKET'
     p[0] = ('block', p[2])
+    
 
 def p_array(p):
     'array : LBRACK elements RBRACK'
@@ -578,10 +599,20 @@ def p_factor_function(p):
               | ID LPAREN arguments RPAREN'''
     name, typ = p[1]
     args = [] if len(p) == 4 else p[3]
-    if typ == 'function' or name in funcs:
+    if typ == 'function' or name in funcs: 
         p[0] = ('call', name, args)
     else:
         p[0] = ('call', name, args)  
+        
+def p_factor_a_function(p):
+    '''factor : AWAIT ID LPAREN RPAREN
+              | AWAIT ID LPAREN arguments RPAREN'''
+    name, typ = p[2]
+    args = [] if len(p) == 5 else p[4]
+    if typ == 'function' or name in funcs: 
+        p[0] = ('Acall', name, args)
+    else:
+        p[0] = ('Acall', name, args)  
 
 def p_arguments_multiple(p):
     'arguments : arguments COMMA expression'
@@ -597,6 +628,13 @@ def p_expression_func_def(p):
     params = p[4]
     body = p[6]
     p[0] = ('ownfunc', name, params, body)
+    
+def p_expression_a_func_def(p):
+    'expression : ASYNC FUNC ID LPAREN params RPAREN block'
+    name, _ = p[2]
+    params = p[4]
+    body = p[6]
+    p[0] = ('ownAfunc', name, params, body)
 
 def p_factor_mod_func(p):
     'factor : ID DOT ID LPAREN arguments RPAREN'
@@ -819,6 +857,66 @@ def eval_ast(node, localVarsCache=None):
         if modul == 'python':
             if func == 'exec':
                 return eval(*args)
+        if modul == 'http':
+            if func == 'listen':
+                hostname = args[0]
+                port = args[1]
+                server = HTTPServer((hostname, port), SimpleHTTPRequestHandler)
+                import threading
+                server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+                server_thread.start()
+                return server
+            if func == 'shutdown':
+                server = args[0]
+                server.shutdown()
+                return None
+            if func == 'get':
+                url = args[0]
+                response = request.urlopen(url)
+                html = response.read().decode()
+                return html
+            if func == 'post':
+                url = args[0]
+                data = parse.urlencode(args[1]).encode()
+                req = request.Request(url, data=data)
+                response = request.urlopen(req)
+                return response
+            if func == 'put':
+                url = args[0]
+                headers = args[1]
+                data = json.dumps(args[2]).encode()
+                req = request.Request(url, data=data, method='PUT', headers=headers)
+                response = request.urlopen(req)
+                return response
+            if func == 'delete':
+                url = args[0]
+                headers = args[1]
+                req = request.Request(url, method='DELETE', headers=headers)
+                response = request.urlopen(req)
+                return response
+            if func == 'read':
+                response = args[0]
+                return response.read()
+            if func == 'decode':
+                response = args[0]
+                return response.decode()
+            if func == 'encode':
+                response = args[0]
+                return response.encode()
+            if func == 'method':
+                method = args[0]
+                if method != 'GET':
+                    url = args[1]
+                    headers = args[2]
+                    data = json.dumps(args[3]).encode()
+                    req = request.Request(url, data=data, method=method, headers=headers)
+                    response = request.urlopen(req)
+                else:
+                    url = args[1]
+                    response = request.urlopen(url)
+                    html = response.read().decode()
+                    return html
+                return response
         if modul in mod_funcs and func in mod_funcs[modul]:
             arg_names, body = mod_funcs[modul][func][1], mod_funcs[modul][func][2]
             enter_scope()
@@ -1031,6 +1129,34 @@ def eval_ast(node, localVarsCache=None):
             return left in right
         else:
             raise ValueError(f"Unknown operator in cond: {op}")
+    if node[0] == 'Acall':
+        name, ar = node[1], node[2]
+        args = [eval_ast(a, localVarsCache) for a in ar]
+        func_def = None
+        for scope in reversed(scope_stack):
+            if name in scope and isinstance(scope[name], tuple) and scope[name][0] in ('afunc', 'func'):
+                func_def = scope[name]
+                break
+        if func_def is None:
+            raise NameError(f"Function '{name}' not defined")
+        params, body = func_def[1], func_def[2]
+        async def async_body():
+            enter_scope()
+            for i, param in enumerate(params):
+                update_variable(param, args[i])
+            result = await eval_ast_async(body)
+            exit_scope()
+            return result[1] if isinstance(result, tuple) and result[0] == 'return' else result
+        if func_def[0] == 'afunc':
+            loop = asyncio.get_event_loop()
+            return loop.run_until_complete(async_body())
+        else:
+            enter_scope()
+            for i, param in enumerate(params):
+                update_variable(param, args[i])
+            result = eval_ast(body)
+            exit_scope()
+            return result[1] if isinstance(result, tuple) and result[0] == 'return' else result
     if node[0] == 'call':
         name, ar = node[1], node[2]
         if name in funcs:
@@ -1077,10 +1203,6 @@ def eval_ast(node, localVarsCache=None):
                 raise ValueError("Start and end indices must be numbers")
             start, end = int(start), int(end)
             return string[start:end]
-        if name == 'split':
-            string = args[0]
-            delimiter = args[1]
-            return string.split(delimiter)
         if name == 'toUpper':
             return args[0].upper()
         if name == 'toLower':
@@ -1127,6 +1249,16 @@ def eval_ast(node, localVarsCache=None):
             new = args[1]
             string = args[2]
             return string.replace(old, new)
+        if name == 'split':
+            a = args[0]
+            s = args[1]
+            if s == '' or s is None:
+                return list(a)
+            return a.split(s)
+        if name == 'join':
+            a = args[0]
+            s = args[1]
+            return s.join(a)
         if name == 'sort':
             arr = args[0]
             if not isinstance(arr, list):
@@ -1252,6 +1384,11 @@ def eval_ast(node, localVarsCache=None):
         update_variable(name, ('func', params, body))
         symbol_table[name] = 'function'
         return None
+    if node[0] == 'ownAfunc':
+        name, params, body = node[1], node[2], node[3]
+        update_variable(name, ('afunc', params, body))
+        symbol_table[name] = 'function'
+        return None
     if node[0] == 'lambda':
         params, body = node[1], node[2]
         return ('func', params, body)
@@ -1282,11 +1419,22 @@ def eval_ast(node, localVarsCache=None):
         if op == '>>': return left_val >> right_val
     raise ValueError(f"Unknown node: {node}")
 
+
+
+
 # === Test Run ===
 while True:
+    if '--version' in sys.argv:
+            print(f'Standard N-lang Interpreter: {version}')
+            print(f"Python version:", sys.version[:6])
+            print(f"PLY version: {ply.__version__}")
+            break
     try:
         code = input("N: ")
         lines = code.split('\n')
+        if '--version' in sys.argv:
+            print(f'Standard N-lang Interpreter: {version}')
+            print(f"Python version:", sys.version[:6])
         if code.startswith("run "):
             filename = code[4:].strip()
             with open(filename, "r", encoding='utf-8') as f:

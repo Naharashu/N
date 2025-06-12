@@ -41,3 +41,7 @@ func cotanh(n) {
 func sigmoid(x) {
     return e^x / (e^(x+1))
 }
+
+func pow(num, power) {
+    return num^power
+}
