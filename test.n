@@ -1,5 +1,14 @@
-var x = http.listen("localhost", 8000)
-println("Start server")
-clock.sleep(20)
-println("Shutdown")
-http.shutdown(x)
+var cmd = input("Type test: ")
+if(cmd == 'test') {
+    define add(a,b) {return a + b}
+}
+else {
+    pass
+}
+ifndef add
+println("[NOT OK]")
+endif
+
+ifdef add
+println("[OK]")
+endif

@@ -141,7 +141,7 @@ tokens = (
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'SHIFT', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
     'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
-    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD', 'DEFINE', 'UNDEF', 'LAMBDA'
+    'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD', 'DEFINE', 'UNDEF', 'IFDEF', 'IFNDEF', 'ENDIF','LAMBDA'
 )
 
 t_PLUS = r'\+'
@@ -183,6 +183,18 @@ def t_DEFINE(t):
 
 def t_UNDEF(t):
     r'undefine|undef'
+    return t
+
+def t_IFDEF(t):
+    r'ifdef'
+    return t
+
+def t_IFNDEF(t):
+    r'ifndef'
+    return t
+
+def t_ENDIF(t):
+    r'endif'
     return t
 
 def t_CONTINUE(t):
@@ -478,14 +490,17 @@ def p_expression_def(p):
     name, _ = p[2]
     params = p[4]
     body = p[6]
-    funcs[name] = ('define', params, body)
-    symbol_table[name] = 'define'
     p[0] = ('define', name, params, body)
     
 def p_expression_undef(p):
     'expression : UNDEF ID'
     name, _ = p[2]
     p[0] = ('undefine', name,)
+    
+def p_expression_meta(p):
+    '''expression : IFDEF ID statements ENDIF
+                  | IFNDEF ID statements ENDIF'''
+    p[0] = ('meta', p[1] ,p[2][0], p[3])
 
 def p_expression_return(p):
     'expression : RETURN retval'
@@ -658,14 +673,31 @@ def p_params_single(p):
     'params : param'
     name, _ = p[1]
     p[0] = [name]
-
-def p_params_empty(p):
-    'params :'
-    p[0] = []
-
+    
 def p_param(p):
     'param : ID'
-    p[0] = p[1]
+    p[0] = (p[1])
+"""
+def p_params_empty_val(p):
+    'params_val :'
+    p[0] = []
+
+def p_param_val(p):
+    'param : ID EQ expression'
+    p[0] = (p[1], p[3])
+    
+def p_params_multiple_val(p):
+    'params_val : params_val COMMA param_val'
+    name, _ = p[3]
+    p[0] = p[1] + [name]
+
+def p_params_single_val(p):
+    'params_val : param_val'
+    name, _ = p[1]
+    p[0] = [name]
+
+    
+"""
     
 def p_dict(p):
     'dict : LBRACKET dict_pairs RBRACKET'
@@ -753,6 +785,11 @@ def replace_params(node, replacements):
         replace_params(child, replacements) if isinstance(child, (tuple, list)) else child
         for child in node
     )
+    
+async def async_eval_ast(node):
+    async def afunc():
+        return eval_ast(node)
+    return afunc()
 
 def eval_ast(node, localVarsCache=None):
     global scope_stack, vars, consts, mod_vars, mod_funcs, vars_stack, funcs
@@ -787,8 +824,29 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
-            result = eval_ast(stmt, localVarsCache)
+            res = eval_ast(stmt, localVarsCache)
+            if res is not None and not (isinstance(res, tuple) and res[0] in ('meta', 'define', 'undefine')):
+                result = res
         return result
+    if node[0] == 'meta':
+        type = node[1]
+        id = node[2]
+        statements = node[3]
+        if type == 'ifdef':
+            if id in funcs and funcs[id] is not None:
+                for stmt in statements:
+                    eval_ast(stmt)
+            else:
+                return None
+        elif type == 'ifndef':
+            if id in funcs and funcs[id] is not None:
+                return None
+            else:
+                for stmt in statements:
+                    eval_ast(stmt)
+        else:
+            raise RuntimeError("Some get wrong in meta-code")
+        return None
     if node[0] == 'define':
         name, params, body = node[1], node[2], node[3]
         funcs[name] = ('define', params, body)
@@ -799,8 +857,7 @@ def eval_ast(node, localVarsCache=None):
             del funcs[name]
         else:
             raise RuntimeError("Macros is not defined")
-        return None
-        
+        return None   
     if node[0] == 'error':
         raise NameError(f"'{node[1]}' is not a function")
     if node[0] == 'neg':
@@ -1144,7 +1201,7 @@ def eval_ast(node, localVarsCache=None):
             enter_scope()
             for i, param in enumerate(params):
                 update_variable(param, args[i])
-            result = await eval_ast_async(body)
+            result = await async_eval_ast(body)
             exit_scope()
             return result[1] if isinstance(result, tuple) and result[0] == 'return' else result
         if func_def[0] == 'afunc':
@@ -1157,6 +1214,9 @@ def eval_ast(node, localVarsCache=None):
             result = eval_ast(body)
             exit_scope()
             return result[1] if isinstance(result, tuple) and result[0] == 'return' else result
+    if node[0] == 'await':
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(async_eval_ast(node[1]))
     if node[0] == 'call':
         name, ar = node[1], node[2]
         if name in funcs:
@@ -1424,6 +1484,7 @@ def eval_ast(node, localVarsCache=None):
 
 # === Test Run ===
 while True:
+    funcs.clear()
     if '--version' in sys.argv:
             print(f'Standard N-lang Interpreter: {version}')
             print(f"Python version:", sys.version[:6])
