@@ -78,6 +78,7 @@ vars = {'pi': 3.14159265, 'e': 2.71828183, 'phi': 1.61803399}
 scope_stack = [{}] 
 consts = {}  
 mod_vars = {}  
+rvars = {}
 mod_funcs = {}  
 vars_stack = [] 
 funcs = {}  
@@ -100,9 +101,13 @@ def find_variable(name):
         return vars[name]
     if name in consts:
         return consts[name]
+    if name in rvars:
+        return rvars[name]
     raise NameError(f"Variable '{name}' not defined in current scope")
 
 def update_variable(name, value, is_const=False):
+    if name in rvars:
+        raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
     if name in scope_stack[-1]:
         if name in consts:
             raise ValueError(f"Cannot reassign constant '{name}'")
@@ -137,10 +142,10 @@ def symbol_lookup(identifier):
 
 # === Lexer ===
 tokens = (
-    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'CONST', 'FOR', 'FUNC', 'ASYNC', 'AWAIT' ,'RETURN', 'IF', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
+    'NUMBER', 'STRING', 'TRUE', 'FALSE', 'VAR', 'CONST', 'FOR', 'FUNC', 'ASYNC', 'AWAIT' ,'RETURN', 'IF','readonly', 'OTHERWISE', 'WHILE', 'ELSE', 'FOREACH', 'ID',
     'PLUS', 'MINUS', 'MULTIPLE', 'DIVIDE', 'POW', 'MOD', 'SHIFT', 'DOT',
     'LPAREN', 'RPAREN', 'LBRACKET', 'LBRACK', 'RBRACK', 'RBRACKET',
-    'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'DO', 'ALWAYS', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
+    'COMMA', 'EQ', 'EE', 'NEQ', 'LT', 'GT', 'GTE', 'LTE', 'op', 'IS', 'IN', 'FOREVER', 'TWODOTS', 'QUE', 'IMPORT', 'SEMI',
     'CONTINUE', 'BREAK', 'PASS', 'AND', 'OR', 'NULL', 'TRY', 'CATCH', 'RAISE', 'YIELD', 'DEFINE', 'UNDEF', 'IFDEF', 'IFNDEF', 'ENDIF','LAMBDA'
 )
 
@@ -179,6 +184,10 @@ def t_SHIFT(t):
 
 def t_DEFINE(t):
     r'define'
+    return t
+
+def t_readonly(t):
+    r'readonly\:'
     return t
 
 def t_UNDEF(t):
@@ -241,12 +250,8 @@ def t_FALSE(t):
     r'false'
     return t
 
-def t_ALWAYS(t):
-    r'always'
-    return t
-
-def t_DO(t):
-    r'do'
+def t_FOREVER(t):
+    r'forever'
     return t
 
 def t_VAR(t):
@@ -560,9 +565,16 @@ def p_expression_while(p):
     p[0] = ('while', cond, body)
 
 def p_expression_alwaysdo(p):
-    'expression : ALWAYS DO block'
-    body = p[3]
-    p[0] = ('alwaysDo', body)
+    '''expression : FOREVER block
+                  | FOREVER LPAREN NUMBER RPAREN block
+    '''
+    if len(p) == 3:
+        body = p[3]
+        p[0] = ('alwaysDo', body)
+    else:
+        lim = int(p[4])
+        body = p[5]
+        p[0] = ('alwaysDo', body)
 
 def p_expression_raise(p):
     'expression : RAISE expression'
@@ -677,6 +689,11 @@ def p_params_single(p):
 def p_param(p):
     'param : ID'
     p[0] = (p[1])
+    
+def p_expression_readonly(p):
+    'expression : readonly ID'
+    name, _ = p[2]
+    p[0] = ('readonly', name)
 """
 def p_params_empty_val(p):
     'params_val :'
@@ -792,10 +809,9 @@ async def async_eval_ast(node):
     return afunc()
 
 def eval_ast(node, localVarsCache=None):
-    global scope_stack, vars, consts, mod_vars, mod_funcs, vars_stack, funcs
+    global scope_stack, vars, consts, mod_vars, mod_funcs, vars_stack, funcs, rvars
     if localVarsCache is None:
         localVarsCache = {}
-    
     if isinstance(node, str) and node in ('true', 'false'):
         return node == 'true'
     if isinstance(node, (int, float, str, list, bool)):
@@ -1008,21 +1024,45 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'pass':
         return None
     if node[0] == 'alwaysDo':
-        body = node[1]
+        body, limit = node[1], node[2]
         result = None
-        while True:
-            enter_scope()
-            block_result = eval_ast(body)
-            exit_scope()
-            if isinstance(block_result, tuple):
-                if block_result[0] == 'return':
-                    return block_result
-                if block_result[0] == 'break':
+        if limit is not None:
+            count = 0
+            while True:
+                if count > limit:
                     break
-                if block_result[0] == 'continue':
-                    continue
-            result = block_result
+                enter_scope()
+                block_result = eval_ast(body)
+                exit_scope()
+                if isinstance(block_result, tuple):
+                    if block_result[0] == 'return':
+                        return block_result
+                    if block_result[0] == 'break':
+                        break
+                    if block_result[0] == 'continue':
+                        continue
+                count += 1
+                result = block_result
+        else:
+            while True:
+                enter_scope()
+                block_result = eval_ast(body)
+                exit_scope()
+                if isinstance(block_result, tuple):
+                    if block_result[0] == 'return':
+                        return block_result
+                    if block_result[0] == 'break':
+                        break
+                    if block_result[0] == 'continue':
+                        continue
+                result = block_result
         return result
+    if node[0] == 'readonly':
+        name = node[1]
+        rvars[name] = find_variable(name)  
+        if name in vars:
+            del vars[name] 
+        return None
     if node[0] == 'ternar':
         cond = node[1]
         body = node[2]
@@ -1118,10 +1158,14 @@ def eval_ast(node, localVarsCache=None):
         _, type, name, expr = node
         val = eval_ast(expr)
         is_const = type == 'const'
+        if name in rvars:
+            raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
         update_variable(name, val, is_const)
         return val
     if node[0] == 'assignpl':
         name, expr = node[1], node[2]
+        if name in rvars:
+            raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
         val = eval_ast(expr)
         update_variable(name, val)
         return val
@@ -1132,6 +1176,8 @@ def eval_ast(node, localVarsCache=None):
         res = find_variable(name)
         if name in consts:
             raise ValueError(f"Cannot reassign constant '{name}'")
+        if name in rvars:
+            raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
         if opera == '+=':
             res += val
         elif opera == '-=':
@@ -1484,7 +1530,6 @@ def eval_ast(node, localVarsCache=None):
 
 # === Test Run ===
 while True:
-    funcs.clear()
     if '--version' in sys.argv:
             print(f'Standard N-lang Interpreter: {version}')
             print(f"Python version:", sys.version[:6])
@@ -1506,6 +1551,8 @@ while True:
             print("Parsing failed due to syntax error")
         else:
             eval_ast(result)
+        funcs.clear()
+        rvars.clear()
     except KeyboardInterrupt:
         print("\nExiting...")
         break
