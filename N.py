@@ -273,10 +273,10 @@ def t_FOREACH(t):
 def t_FOR(t):
     r'for'
     return t
-    
+
 def t_LAMBDA(t):
-	r'lambda'
-	return t
+        r'lambda'
+        return t
 
 def t_FUNC(t):
     r'func'
@@ -383,7 +383,7 @@ def p_program(p):
 def p_program_empty(p):
     'program : '
     p[0] = ('program', [])
-    
+
 def p_a_expr(p):
     'expression : AWAIT expression'
     p[0] = ('await', p[2])
@@ -399,7 +399,7 @@ def p_statements_single(p):
 def p_block(p):
     'block : LBRACKET statements RBRACKET'
     p[0] = ('block', p[2])
-    
+
 
 def p_array(p):
     'array : LBRACK elements RBRACK'
@@ -496,12 +496,12 @@ def p_expression_def(p):
     params = p[4]
     body = p[6]
     p[0] = ('define', name, params, body)
-    
+
 def p_expression_undef(p):
     'expression : UNDEF ID'
     name, _ = p[2]
     p[0] = ('undefine', name,)
-    
+
 def p_expression_meta(p):
     '''expression : IFDEF ID statements ENDIF
                   | IFNDEF ID statements ENDIF'''
@@ -518,11 +518,11 @@ def p_retval_multiple(p):
 def p_retval_single(p):
     'retval : expression'
     p[0] = p[1]
-    
+
 def p_expression_lambda(p):
-	'expression : LAMBDA LPAREN params RPAREN block'
-	p[0] = ('lambda', p[3], p[5])
-	
+        'expression : LAMBDA LPAREN params RPAREN block'
+        p[0] = ('lambda', p[3], p[5])
+
 def p_factor_lambda_call(p):
     'factor : LPAREN expression RPAREN LPAREN arguments RPAREN'
     p[0] = ('call', p[2], p[5])
@@ -569,12 +569,12 @@ def p_expression_alwaysdo(p):
                   | FOREVER LPAREN NUMBER RPAREN block
     '''
     if len(p) == 3:
-        body = p[3]
+        body = p[2]
         p[0] = ('alwaysDo', body)
     else:
-        lim = int(p[4])
+        lim = p[3]
         body = p[5]
-        p[0] = ('alwaysDo', body)
+        p[0] = ('alwaysDo',  body, lim)
 
 def p_expression_raise(p):
     'expression : RAISE expression'
@@ -630,7 +630,7 @@ def p_factor_function(p):
         p[0] = ('call', name, args)
     else:
         p[0] = ('call', name, args)  
-        
+
 def p_factor_a_function(p):
     '''factor : AWAIT ID LPAREN RPAREN
               | AWAIT ID LPAREN arguments RPAREN'''
@@ -655,7 +655,7 @@ def p_expression_func_def(p):
     params = p[4]
     body = p[6]
     p[0] = ('ownfunc', name, params, body)
-    
+
 def p_expression_a_func_def(p):
     'expression : ASYNC FUNC ID LPAREN params RPAREN block'
     name, _ = p[2]
@@ -685,11 +685,11 @@ def p_params_single(p):
     'params : param'
     name, _ = p[1]
     p[0] = [name]
-    
+
 def p_param(p):
     'param : ID'
     p[0] = (p[1])
-    
+
 def p_expression_readonly(p):
     'expression : readonly ID'
     name, _ = p[2]
@@ -715,7 +715,7 @@ def p_params_single_val(p):
 
     
 """
-    
+
 def p_dict(p):
     'dict : LBRACKET dict_pairs RBRACKET'
     p[0] = ('dict', p[2])
@@ -802,7 +802,7 @@ def replace_params(node, replacements):
         replace_params(child, replacements) if isinstance(child, (tuple, list)) else child
         for child in node
     )
-    
+
 async def async_eval_ast(node):
     async def afunc():
         return eval_ast(node)
@@ -1276,7 +1276,7 @@ def eval_ast(node, localVarsCache=None):
                 enter_scope()
                 result = eval_ast(new_body, localVarsCache)
                 exit_scope()
-                
+
                 if isinstance(result, tuple) and result[0] == 'return':
                     return result[1]
                 return result
@@ -1557,4 +1557,4 @@ while True:
         print("\nExiting...")
         break
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}(line {lexer.lineno})")
