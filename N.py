@@ -788,7 +788,7 @@ def p_error(p):
     else:
         print("Syntax error at EOF or problems with lexer")
 
-parser = yacc.yacc()
+parser = yacc.yacc(optimize=1)
 
 # === Interpreter ===
 def replace_params(node, replacements):
@@ -851,7 +851,7 @@ def eval_ast(node, localVarsCache=None):
         if type == 'ifdef':
             if id in funcs and funcs[id] is not None:
                 for stmt in statements:
-                    eval_ast(stmt)
+                    eval_ast(stmt, localVarsCache)
             else:
                 return None
         elif type == 'ifndef':
@@ -1008,11 +1008,15 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'block':
         enter_scope()
         result = None
+        localVarsCache = {}
         for stmt in node[1]:
             result = eval_ast(stmt, localVarsCache)
             if isinstance(result, tuple) and result[0] in ('return', 'continue', 'break'):
                 exit_scope()
                 return result
+        for name, value in localVarsCache.items():
+            if name not in rvars and name not in consts:
+                update_variable(name, value)
         exit_scope()
         return result
     if node[0] == 'return':
@@ -1094,13 +1098,9 @@ def eval_ast(node, localVarsCache=None):
         cond = node[1]
         body = node[2]
         result = None
-        while True:
-            cond1 = eval_ast(cond)
-            if not cond1:
-                break
-            enter_scope()
-            block_result = eval_ast(body)
-            exit_scope()
+        enter_scope()
+        while eval_ast(cond, localVarsCache):
+            block_result = eval_ast(body, localVarsCache)
             if isinstance(block_result, tuple):
                 if block_result[0] == 'return':
                     return block_result
@@ -1109,6 +1109,7 @@ def eval_ast(node, localVarsCache=None):
                 if block_result[0] == 'continue':
                     continue
             result = block_result
+        exit_scope()
         return result
     if node[0] == 'foreach':
         name = node[1]
@@ -1137,7 +1138,8 @@ def eval_ast(node, localVarsCache=None):
         if not isinstance(start_val, (int, float)) or not isinstance(end_val, (int, float)):
             raise ValueError("For loop start and end must be numbers")
         enter_scope()
-        update_variable(var, start_val)
+        localVarsCache = {}
+        localVarsCache[var] = start_val
         result = None
         step = 1 if start_val <= end_val else -1
         for i in range(int(start_val), int(end_val) + (1 if step > 0 else -1), step):
@@ -1152,28 +1154,39 @@ def eval_ast(node, localVarsCache=None):
                 if block_result[0] == 'continue':
                     continue
             result = block_result
+        for name, value in localVarsCache.items():
+            if name not in rvars and name not in consts:
+                update_variable(name, value)
         exit_scope()
         return result
     if node[0] == 'assign':
         _, type, name, expr = node
-        val = eval_ast(expr)
+        val = eval_ast(expr, localVarsCache)
         is_const = type == 'const'
         if name in rvars:
             raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
+        if name not in scope_stack[-1] and name not in vars and name not in consts:
+            localVarsCache[name] = val
         update_variable(name, val, is_const)
         return val
     if node[0] == 'assignpl':
         name, expr = node[1], node[2]
         if name in rvars:
             raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
-        val = eval_ast(expr)
+        val = eval_ast(expr, localVarsCache)
+        if name not in scope_stack[-1] and name not in vars and name not in consts:
+            localVarsCache[name] = val
         update_variable(name, val)
         return val
     if node[0] == 'newAssign':
         name = node[1]
         val = eval_ast(node[2])
         opera = node[3]
-        res = find_variable(name)
+        try:
+            res = localVarsCache.get(name, find_variable(name))
+        except Exception:
+            res = 0
+            raise RuntimeError(f"Cannot reassign undefined variable '{name}'")
         if name in consts:
             raise ValueError(f"Cannot reassign constant '{name}'")
         if name in rvars:
