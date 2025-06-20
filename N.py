@@ -12,8 +12,11 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib import parse, request
 import json
 import asyncio
+from collections import defaultdict
+from functools import lru_cache
 
-version = "1.2.0-beta"
+
+version = "1.4.0-beta"
 # === Symbol Table ===
 symbol_table = {
     'var': 'keyword',
@@ -74,17 +77,19 @@ symbol_table = {
 }  
 
 # === Scope Management ===
-vars = {'pi': 3.14159265, 'e': 2.71828183, 'phi': 1.61803399}  
+vars = {}  
 scope_stack = [{}] 
 consts = {}  
-mod_vars = {}  
-rvars = {}
-mod_funcs = {}  
+mod_vars = defaultdict(dict)
+rvars = defaultdict(dict)
+mod_funcs = defaultdict(dict)  
 vars_stack = [] 
 funcs = {}  
 
 class Error(Exception):
     pass
+
+varCache = {}
 
 def enter_scope():
     scope_stack.append({})
@@ -92,19 +97,27 @@ def enter_scope():
 def exit_scope():
     if len(scope_stack) > 1:
         scope_stack.pop()
+        varCache.clear()
 
 def find_variable(name):
+    if name in varCache:
+        return varCache[name]
     for scope in reversed(scope_stack):
         if name in scope:
+            varCache[name] = scope[name]
             return scope[name]
     if name in vars:
+        varCache[name] = vars[name]
         return vars[name]
     if name in consts:
+        varCache[name] = consts[name]
         return consts[name]
     if name in rvars:
+        varCache[name] = rvars[name]
         return rvars[name]
     raise NameError(f"Variable '{name}' not defined in current scope")
 
+# @lru_cache(maxsize=1024)
 def update_variable(name, value, is_const=False):
     if name in rvars:
         raise RuntimeError(f"Cannot reassign readonly variable '{name}'")
@@ -319,7 +332,7 @@ def t_WHILE(t):
     return t
 
 def t_NULL(t):
-    r'null|NULL|None|none|Null'
+    r'null'
     return t
 
 def t_ID(t):
@@ -328,8 +341,8 @@ def t_ID(t):
     return t
 
 def t_NUMBER(t):
-    r'\d*\.?\d+'
-    t.value = float(t.value) if '.' in t.value else int(t.value)
+    r'-?\d*\.?\d+(?:[eE][+-]?\d+)?'
+    t.value = float(t.value) if '.' in t.value or 'e' in t.value.lower() else int(t.value)
     return t
 
 def t_STRING(t):
@@ -656,13 +669,6 @@ def p_expression_func_def(p):
     body = p[6]
     p[0] = ('ownfunc', name, params, body)
 
-def p_expression_a_func_def(p):
-    'expression : ASYNC FUNC ID LPAREN params RPAREN block'
-    name, _ = p[2]
-    params = p[4]
-    body = p[6]
-    p[0] = ('ownAfunc', name, params, body)
-
 def p_factor_mod_func(p):
     'factor : ID DOT ID LPAREN arguments RPAREN'
     modul, _ = p[1]
@@ -686,9 +692,22 @@ def p_params_single(p):
     name, _ = p[1]
     p[0] = [name]
 
+def p_params_empty(p):
+    'params :'
+    p[0] = []
+
 def p_param(p):
     'param : ID'
-    p[0] = (p[1])
+    p[0] = p[1]
+    
+    
+def p_expression_a_func_def(p):
+    'expression : ASYNC FUNC ID LPAREN params RPAREN block'
+    name, _ = p[2]
+    params = p[4]
+    body = p[6]
+    p[0] = ('ownAfunc', name, params, body)
+
 
 def p_expression_readonly(p):
     'expression : readonly ID'
@@ -804,9 +823,7 @@ def replace_params(node, replacements):
     )
 
 async def async_eval_ast(node):
-    async def afunc():
-        return eval_ast(node)
-    return afunc()
+    return await asyncio.to_thread(eval_ast, node)
 
 def eval_ast(node, localVarsCache=None):
     global scope_stack, vars, consts, mod_vars, mod_funcs, vars_stack, funcs, rvars
@@ -837,6 +854,18 @@ def eval_ast(node, localVarsCache=None):
         for key, value in pairs:
             result[key] = eval_ast(value)
         return result
+    if isinstance(node, tuple) and len(node) == 3:
+        op, left, right = node
+        left_val = eval_ast(left, localVarsCache)
+        right_val = eval_ast(right, localVarsCache)
+        if op == '+': return left_val + right_val
+        if op == '-': return left_val - right_val
+        if op == '*': return left_val * right_val
+        if op == '/': return left_val / right_val
+        if op == '^': return left_val ** right_val
+        if op == '%': return left_val % right_val
+        if op == '<<': return left_val << right_val
+        if op == '>>': return left_val >> right_val
     if node[0] == 'program':
         result = None
         for stmt in node[1]:
@@ -1030,14 +1059,13 @@ def eval_ast(node, localVarsCache=None):
     if node[0] == 'alwaysDo':
         body, limit = node[1], node[2]
         result = None
+        enter_scope()
         if limit is not None:
             count = 0
             while True:
                 if count > limit:
                     break
-                enter_scope()
                 block_result = eval_ast(body)
-                exit_scope()
                 if isinstance(block_result, tuple):
                     if block_result[0] == 'return':
                         return block_result
@@ -1049,9 +1077,7 @@ def eval_ast(node, localVarsCache=None):
                 result = block_result
         else:
             while True:
-                enter_scope()
                 block_result = eval_ast(body)
-                exit_scope()
                 if isinstance(block_result, tuple):
                     if block_result[0] == 'return':
                         return block_result
@@ -1060,6 +1086,7 @@ def eval_ast(node, localVarsCache=None):
                     if block_result[0] == 'continue':
                         continue
                 result = block_result
+        exit_scope()
         return result
     if node[0] == 'readonly':
         name = node[1]
@@ -1118,11 +1145,10 @@ def eval_ast(node, localVarsCache=None):
         result = None
         if not isinstance(iterable, (list, str)):
             raise ValueError(f"Expected an iterable in foreach, got {type(iterable).__name__}")
+        enter_scope()
         for item in iterable:
-            enter_scope()
             update_variable(name, item)
             block_result = eval_ast(body, localVarsCache)
-            exit_scope()
             if isinstance(block_result, tuple) and block_result[0] in ('break', 'return', 'continue'):
                 if block_result[0] == 'break':
                     break
@@ -1130,11 +1156,12 @@ def eval_ast(node, localVarsCache=None):
                     continue
                 return block_result
             result = block_result
+        exit_scope()
         return result
     if node[0] == 'for':
         _, var, start, end, body = node
-        start_val = eval_ast(start)
-        end_val = eval_ast(end)
+        start_val = eval_ast(start, localVarsCache)
+        end_val = eval_ast(end, localVarsCache)
         if not isinstance(start_val, (int, float)) or not isinstance(end_val, (int, float)):
             raise ValueError("For loop start and end must be numbers")
         enter_scope()
@@ -1180,7 +1207,7 @@ def eval_ast(node, localVarsCache=None):
         return val
     if node[0] == 'newAssign':
         name = node[1]
-        val = eval_ast(node[2])
+        val = eval_ast(node[2], localVarsCache)
         opera = node[3]
         try:
             res = localVarsCache.get(name, find_variable(name))
@@ -1356,11 +1383,13 @@ def eval_ast(node, localVarsCache=None):
             return eval_ast("false")
         if name == 'fread':
             filename = args[0]
-            with open(filename, 'r', encoding='utf-8') as f:
+            encd = args[1] if args[1] is not None else 'utf-8'
+            with open(filename, 'r', encoding=encd) as f:
                 return f.read()
         if name == 'fwrite':
             filename = args[0]
-            with open(filename, 'w', encoding='utf-8') as f:
+            encd = args[1] if args[1] is not None else 'utf-8'
+            with open(filename, 'w', encoding=encd) as f:
                 f.write(args[1])
             return None
         if name == 'replace':
@@ -1524,25 +1553,23 @@ def eval_ast(node, localVarsCache=None):
         if not isinstance(indx, (int, float)) or indx < 0 or indx >= len(arr):
             raise IndexError(f"Index {indx} out of range")
         return arr[int(indx)]
-    if isinstance(node, tuple) and len(node) == 3:
-        op, left, right = node
-        left_val = eval_ast(left)
-        right_val = eval_ast(right)
-        if op == '+': return left_val + right_val
-        if op == '-': return left_val - right_val
-        if op == '*': return left_val * right_val
-        if op == '/': return left_val / right_val
-        if op == '^': return left_val ** right_val
-        if op == '%': return left_val % right_val
-        if op == '<<': return left_val << right_val
-        if op == '>>': return left_val >> right_val
     raise ValueError(f"Unknown node: {node}")
 
 
 
 
 # === Test Run ===
+def cleanup():
+    funcs.clear()
+    rvars.clear()
+    mod_vars.clear()
+    mod_funcs.clear()
+    vars_stack.clear()
+    consts.clear()
+    varCache.clear()
+
 while True:
+    cleanup()
     if '--version' in sys.argv:
             print(f'Standard N-lang Interpreter: {version}')
             print(f"Python version:", sys.version[:6])
@@ -1564,8 +1591,7 @@ while True:
             print("Parsing failed due to syntax error")
         else:
             eval_ast(result)
-        funcs.clear()
-        rvars.clear()
+        cleanup()
     except KeyboardInterrupt:
         print("\nExiting...")
         break
